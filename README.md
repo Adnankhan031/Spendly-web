@@ -32,19 +32,17 @@ Supabase → **Project Settings** → **API**:
 The anon key is meant to be public — it ships inside every browser app. Row-level
 security is what actually protects the data. Never put the `service_role` key here.
 
-### 4. Point Vercel at this folder
+### 4. Deploy on Vercel
 
-The repo root holds the React Native app, so Vercel needs to be told where the web
-app lives:
+Import this repository. Vercel detects Next.js on its own — no Root Directory to set.
 
-- Project → **Settings** → **Build & Deployment** → **Root Directory** → `web`
-- Project → **Settings** → **Environment Variables** → add both variables above
-- Redeploy
+- Add both environment variables above **before** the first deploy
+- Settings → **Deployment Protection** → turn **Vercel Authentication** off, or every
+  visitor (including you on your phone) is bounced to a Vercel login
 
 ### 5. Run it locally
 
 ```bash
-cd web
 cp .env.example .env.local   # then paste your two values in
 npm install
 npm run dev
@@ -100,10 +98,10 @@ are separate stores today, not two views of one.
 to match. The first load inserts the same 24 categories and 4 accounts the native app
 ships with.
 
-**The parser.** `src/lib/parser.ts`, `format.ts` and `seed.ts` are copies of the
-native app's files — Vercel only uploads the `web/` folder, so they cannot be imported
-across the repo. `scripts/parser-check.ts` runs the same corpus against this copy so
-the two cannot silently drift apart. The one intentional difference: category ids are
+**The parser.** `src/lib/parser.ts`, `format.ts` and `seed.ts` are mirrors of the same
+files in the native app (github.com/Adnankhan031/Expense_Tracker), which lives in its
+own repository. `scripts/parser-check.ts` runs the same corpus against this copy so the
+two cannot silently drift apart. The one intentional difference: category ids are
 uuids here, so the parser's fallbacks look up a stable `key` slug instead.
 
 **Analytics.** One person's spending is a few thousand rows, so every transaction is
