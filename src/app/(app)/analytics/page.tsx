@@ -4,12 +4,12 @@ import React, { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useStore } from '@/lib/store';
 import { rangeStats } from '@/lib/analytics';
-import { ChartNoAxesCombined } from 'lucide-react';
+import { CalendarRange, ChartNoAxesCombined } from 'lucide-react';
 import { Bars, Donut, GroupedBars, HBar, Legend, TrendLine } from '@/components/charts';
-import { Card, EmptyState, SectionTitle, Segmented, Spinner, cx } from '@/components/ui';
-import { currentMonth, dayLabel, monthEnd, monthLabel, monthStart, shiftMonth, todayLocal } from '@/lib/format';
+import { Card, EmptyState, SectionTitle, Segmented, Spinner, cx, inputClass } from '@/components/ui';
+import { addDays, currentMonth, dayLabel, monthEnd, monthLabel, monthStart, shiftMonth, todayLocal } from '@/lib/format';
 
-type Period = 'month' | '3m' | '6m' | '12m' | 'all';
+type Period = 'month' | '3m' | '6m' | '12m' | 'all' | 'custom';
 
 const OPTIONS: { value: Period; label: string }[] = [
   { value: 'month', label: 'Month' },
@@ -17,11 +17,15 @@ const OPTIONS: { value: Period; label: string }[] = [
   { value: '6m', label: '6M' },
   { value: '12m', label: '1Y' },
   { value: 'all', label: 'All' },
+  { value: 'custom', label: 'Custom' },
 ];
 
 export default function AnalyticsPage() {
   const { txns, fmt, fmtCompact, loading } = useStore();
   const [period, setPeriod] = useState<Period>('6m');
+  // custom window, defaulting to the last 30 days so the pickers open somewhere useful
+  const [from, setFrom] = useState(() => addDays(todayLocal(), -29));
+  const [to, setTo] = useState(() => todayLocal());
 
   const bounds = useMemo(() => {
     const cur = currentMonth();
@@ -30,14 +34,19 @@ export default function AnalyticsPage() {
       const first = txns.length ? txns[txns.length - 1].local_date : monthStart(cur);
       return { from: first, to: todayLocal(), label: 'All time' };
     }
+    if (period === 'custom') {
+      const lo = from <= to ? from : to;
+      const hi = from <= to ? to : from;
+      return { from: lo, to: hi, label: `${dayLabel(lo)} – ${dayLabel(hi)}` };
+    }
     const back = period === '3m' ? 2 : period === '6m' ? 5 : 11;
     return { from: monthStart(shiftMonth(cur, -back)), to: monthEnd(cur), label: `Last ${back + 1} months` };
-  }, [period, txns]);
+  }, [period, txns, from, to]);
 
   const stats = useMemo(() => rangeStats(txns, bounds.from, bounds.to, bounds.label), [txns, bounds]);
 
   const prev = useMemo(() => {
-    if (period === 'all') return null;
+    if (period === 'all' || period === 'custom') return null;
     const cur = currentMonth();
     const back = period === 'month' ? 1 : period === '3m' ? 3 : period === '6m' ? 6 : 12;
     return rangeStats(
@@ -72,6 +81,62 @@ export default function AnalyticsPage() {
       </header>
 
       <Segmented options={OPTIONS} value={period} onChange={setPeriod} />
+
+      {period === 'custom' && (
+        <div className="mt-3 rounded-2xl border border-line bg-surface p-3">
+          <div className="mb-2.5 flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.1em] text-faint">
+            <CalendarRange size={13} />
+            Pick a window
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="flex-1">
+              <span className="mb-1 block text-[10.5px] font-semibold text-dim">From</span>
+              <input
+                type="date"
+                value={from}
+                max={todayLocal()}
+                onChange={(e) => e.target.value && setFrom(e.target.value)}
+                className={cx(inputClass, 'py-2 text-[13.5px]')}
+              />
+            </label>
+            <label className="flex-1">
+              <span className="mb-1 block text-[10.5px] font-semibold text-dim">To</span>
+              <input
+                type="date"
+                value={to}
+                max={todayLocal()}
+                onChange={(e) => e.target.value && setTo(e.target.value)}
+                className={cx(inputClass, 'py-2 text-[13.5px]')}
+              />
+            </label>
+          </div>
+          <div className="mt-2.5 flex flex-wrap gap-1.5">
+            {(
+              [
+                ['Last 7 days', 6],
+                ['Last 30 days', 29],
+                ['Last 90 days', 89],
+                ['Last 365 days', 364],
+              ] as const
+            ).map(([label, back]) => (
+              <button
+                key={label}
+                type="button"
+                onClick={() => {
+                  setFrom(addDays(todayLocal(), -back));
+                  setTo(todayLocal());
+                }}
+                className="rounded-full border border-line bg-sunken px-2.5 py-1 text-[11.5px] font-semibold text-dim transition active:scale-95"
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <p className="mt-2 text-[11px] text-faint">
+            {stats.days} day{stats.days === 1 ? '' : 's'} selected
+          </p>
+        </div>
+      )}
 
       {stats.count === 0 ? (
         <Card className="mt-4">

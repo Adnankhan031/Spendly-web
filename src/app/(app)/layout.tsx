@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { supabaseServer } from '@/lib/supabase/server';
 import { StoreProvider } from '@/lib/store';
 import { TabBar } from '@/components/TabBar';
+import { PageTransition } from '@/components/PageTransition';
 
 // These screens are per-user, so there is nothing to prerender.
 export const dynamic = 'force-dynamic';
@@ -36,7 +37,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   return (
     <StoreProvider user={user}>
       <div className="safe-t mx-auto min-h-dvh w-full max-w-2xl pb-[calc(72px+env(safe-area-inset-bottom,0px))]">
-        {children}
+        <PageTransition>{children}</PageTransition>
       </div>
       <TabBar />
     </StoreProvider>

@@ -7,13 +7,18 @@ import { parseInput } from '@/lib/parser';
 import { runQuery, type Answer } from '@/lib/analytics';
 import { DatePicker } from '@/components/pickers';
 import { TxnEditor } from '@/components/TxnEditor';
-import { IconTile } from '@/lib/icons';
-import { ArrowUp, MessageSquareText, Plus, Trash2, X } from 'lucide-react';
+import { CategoryIcon, IconTile } from '@/lib/icons';
+import { ArrowUp, LayoutGrid, MessageSquareText, Plus, Trash2, X } from 'lucide-react';
 import { Chip, EmptyState, Spinner, cx } from '@/components/ui';
 import { dayLabel, shortDayLabel, todayLocal } from '@/lib/format';
 import type { ChatMessage, TxnView } from '@/lib/types';
 
-const HINTS = ['food 300', 'groceries 2400 and auto 80', 'petrol 1500 on 5th', 'salary 45000 received'];
+const HINTS: { text: string; note: string }[] = [
+  { text: 'lunch 1200', note: 'the basics' },
+  { text: 'groceries 4800 and train 320', note: 'two at once' },
+  { text: 'rent 85000 on 1', note: 'a past date' },
+  { text: 'salary 300000 received', note: 'income' },
+];
 
 export default function AddPage() {
   const store = useStore();
@@ -25,6 +30,7 @@ export default function AddPage() {
   const [showDate, setShowDate] = useState(false);
   const [editing, setEditing] = useState<TxnView | null>(null);
   const [creating, setCreating] = useState(false);
+  const [showPicker, setShowPicker] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
 
@@ -182,21 +188,22 @@ export default function AddPage() {
           <div className="flex flex-1 flex-col justify-center">
             <EmptyState
               icon={MessageSquareText}
-              title="Type what you spent"
-              body="No forms. Write it the way you would say it — the amount, what it was for, and a date if it was not today."
+              title="What did you spend?"
+              body="Write it the way you would say it. The amount and what it was for is enough — add a day only if it was not today."
             />
-            <div className="flex flex-col items-center gap-2">
+            <div className="mx-auto flex w-full max-w-sm flex-col gap-2">
               {HINTS.map((h) => (
                 <button
-                  key={h}
+                  key={h.text}
                   type="button"
                   onClick={() => {
-                    setInput(h);
+                    setInput(h.text);
                     taRef.current?.focus();
                   }}
-                  className="rounded-full bg-sunken px-3.5 py-2 text-[13px] text-dim active:scale-95"
+                  className="flex items-center gap-2.5 rounded-xl border border-line bg-surface px-3.5 py-2.5 text-left transition active:scale-[0.98]"
                 >
-                  {h}
+                  <span className="text-[13.5px] font-semibold">{h.text}</span>
+                  <span className="text-[11px] text-faint">{h.note}</span>
                 </button>
               ))}
             </div>
@@ -307,9 +314,48 @@ export default function AddPage() {
         <div ref={endRef} />
       </div>
 
+      {/* tap a category, then just type the amount */}
+      {showPicker && (
+        <div className="sticky bottom-[calc(130px+env(safe-area-inset-bottom,0px))] z-20 border-t border-line bg-surface">
+          <div className="no-scrollbar mx-auto flex max-w-2xl gap-2 overflow-x-auto px-3 py-2.5">
+            {categories
+              .filter((c) => c.kind === 'expense' && !c.archived)
+              .map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => {
+                    const word = (c.keywords.split('|')[0] || c.name.split(' ')[0]).toLowerCase();
+                    setInput((prev) => (prev.trim() ? prev.trim() + ' ' : '') + word + ' ');
+                    taRef.current?.focus();
+                  }}
+                  className="flex w-[68px] shrink-0 flex-col items-center gap-1.5 rounded-xl border border-line bg-sunken py-2 transition active:scale-95"
+                  style={{ color: c.color }}
+                >
+                  <CategoryIcon name={c.icon} size={19} />
+                  <span className="w-full truncate px-1 text-center text-[9.5px] font-semibold text-dim">
+                    {c.name}
+                  </span>
+                </button>
+              ))}
+          </div>
+        </div>
+      )}
+
       {/* composer */}
       <div className="safe-b sticky bottom-[calc(72px+env(safe-area-inset-bottom,0px))] z-20 border-t border-line bg-surface px-3 py-2.5">
         <div className="mx-auto flex max-w-2xl items-end gap-2">
+          <button
+            type="button"
+            onClick={() => setShowPicker((v) => !v)}
+            aria-label="Categories"
+            className={cx(
+              'grid size-10 shrink-0 place-items-center rounded-xl transition active:scale-95',
+              showPicker ? 'bg-brand-soft text-brand' : 'bg-sunken text-dim'
+            )}
+          >
+            <LayoutGrid size={18} />
+          </button>
           <textarea
             ref={taRef}
             value={input}

@@ -10,29 +10,29 @@
    ------------------------------------------------------------------------ */
 
 @theme {
-  --color-bg: #0a0b0f;
-  --color-surface: #13151c;
-  --color-raised: #1b1e27;
-  --color-sunken: #0e1015;
-  --color-line: #232733;
-  --color-line-soft: #1a1e28;
-  --color-line-strong: #333949;
+  --color-bg: #0a0b10;
+  --color-surface: #14161f;
+  --color-raised: #1b1e29;
+  --color-sunken: #0f111a;
+  --color-line: #242838;
+  --color-line-soft: #1a1d29;
+  --color-line-strong: #343a4e;
 
-  --color-ink: #f2f4f8;
-  --color-dim: #969db0;
-  --color-faint: #626a7d;
+  --color-ink: #f1f3f9;
+  --color-dim: #98a0b4;
+  --color-faint: #646c82;
 
-  --color-brand: #ffb020;
-  --color-brand-soft: #2e2208;
-  --color-brand-dim: #8a6415;
-  --color-on-brand: #1a1200;
+  --color-brand: #7b7bf5;
+  --color-brand-soft: #1c1c3a;
+  --color-brand-dim: #5a5ac4;
+  --color-on-brand: #ffffff;
 
   --color-up: #2dd4a7;
   --color-up-soft: #0d2e26;
   --color-down: #ff5c7c;
   --color-down-soft: #331420;
   --color-info: #5b8def;
-  --color-warn: #ffb020;
+  --color-warn: #f5a524;
 
   --font-sans:
     ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
@@ -42,21 +42,21 @@
 }
 
 :root[data-theme='light'] {
-  --color-bg: #f6f6f3;
+  --color-bg: #f7f8fb;
   --color-surface: #ffffff;
   --color-raised: #ffffff;
-  --color-sunken: #eeeeea;
-  --color-line: #e3e3dd;
-  --color-line-soft: #ededea;
-  --color-line-strong: #cdcdc5;
+  --color-sunken: #f0f2f7;
+  --color-line: #e3e7f0;
+  --color-line-soft: #edeff5;
+  --color-line-strong: #c7cedd;
 
-  --color-ink: #14161c;
-  --color-dim: #5b626e;
-  --color-faint: #8c93a0;
+  --color-ink: #111420;
+  --color-dim: #576074;
+  --color-faint: #8892a6;
 
-  --color-brand: #a86c00;
-  --color-brand-soft: #fdf0d6;
-  --color-brand-dim: #c98b16;
+  --color-brand: #4f46d6;
+  --color-brand-soft: #eae9fd;
+  --color-brand-dim: #6b63e0;
   --color-on-brand: #ffffff;
 
   --color-up: #0b9b78;
@@ -64,10 +64,10 @@
   --color-down: #d43a5f;
   --color-down-soft: #fce3e8;
   --color-info: #3567cf;
-  --color-warn: #a86c00;
+  --color-warn: #b4740b;
 
-  --shadow-card: 0 1px 2px rgb(20 22 28 / 0.05), 0 10px 24px -18px rgb(20 22 28 / 0.28);
-  --shadow-pop: 0 24px 60px -20px rgb(20 22 28 / 0.3);
+  --shadow-card: 0 1px 2px rgb(17 20 32 / 0.04), 0 8px 22px -16px rgb(17 20 32 / 0.22);
+  --shadow-pop: 0 24px 60px -20px rgb(17 20 32 / 0.26);
 }
 
 * {
@@ -193,6 +193,27 @@ textarea {
   .rise,
   .sheet-in,
   .grow-bar {
+    animation: none;
+  }
+}
+
+/* Route changes get a short lift so tab switches read as movement, not a cut. */
+@keyframes page-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.page-in {
+  animation: page-in 0.26s cubic-bezier(0.22, 0.85, 0.3, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-in {
     animation: none;
   }
 }
