@@ -10,15 +10,10 @@ import { TxnEditor } from '@/components/TxnEditor';
 import { CategoryIcon, IconTile } from '@/lib/icons';
 import { ArrowUp, LayoutGrid, MessageSquareText, Plus, Trash2, X } from 'lucide-react';
 import { Chip, EmptyState, Spinner, cx } from '@/components/ui';
-import { dayLabel, shortDayLabel, todayLocal } from '@/lib/format';
+import { WEEKDAYS_SHORT, addDays, dayLabel, fromLocalDate, shortDayLabel, todayLocal } from '@/lib/format';
 import type { ChatMessage, TxnView } from '@/lib/types';
 
-const HINTS: { text: string; note: string }[] = [
-  { text: 'lunch 1200', note: 'the basics' },
-  { text: 'groceries 4800 and train 320', note: 'two at once' },
-  { text: 'rent 85000 on 1', note: 'a past date' },
-  { text: 'salary 300000 received', note: 'income' },
-];
+
 
 export default function AddPage() {
   const store = useStore();
@@ -49,6 +44,24 @@ export default function AddPage() {
     0
   );
   const pinnedIsToday = pinnedDate === today;
+
+  // last 7 days, so the header can show today in context rather than alone
+  const week = useMemo(() => {
+    const from = addDays(today, -6);
+    const totals = new Map<string, number>();
+    for (const t of txns) {
+      if (t.type !== 'expense' || t.local_date < from || t.local_date > today) continue;
+      totals.set(t.local_date, (totals.get(t.local_date) ?? 0) + t.amount_minor);
+    }
+    return Array.from({ length: 7 }, (_, i) => {
+      const date = addDays(from, i);
+      return { date, total: totals.get(date) ?? 0 };
+    });
+  }, [txns, today]);
+
+  const weekMax = Math.max(1, ...week.map((d) => d.total));
+  const weekAvg = week.reduce((a, b) => a + b.total, 0) / (week.length || 1);
+  const vsUsual = weekAvg > 0 ? Math.round(((todayTotal - weekAvg) / weekAvg) * 100) : null;
 
   const send = useCallback(async () => {
     const text = input.trim();
@@ -137,37 +150,76 @@ export default function AddPage() {
     <div className="flex min-h-[calc(100dvh-72px)] flex-col">
       {/* header */}
       <header className="sticky top-0 z-20 bg-bg/95 px-4 pt-3 pb-2 backdrop-blur-lg">
-        <div className="flex items-center gap-3">
-          <div className="flex-1">
-            <p className="text-xs font-semibold text-dim">Spent today</p>
-            <p className="tabular text-2xl font-extrabold">{fmt(todayTotal)}</p>
+        <div className="rounded-2xl border border-line bg-surface p-4 shadow-[var(--shadow-card)]">
+          <div className="flex items-start gap-3">
+            <div className="min-w-0 flex-1">
+              <p className="text-[11.5px] font-bold uppercase tracking-[0.08em] text-dim">Spent today</p>
+              <p className="tabular mt-0.5 text-[34px] font-extrabold leading-none">{fmt(todayTotal)}</p>
+              {vsUsual !== null && todayTotal > 0 && (
+                <span
+                  className={cx(
+                    'mt-2 inline-block rounded-full px-2 py-0.5 text-[11px] font-bold',
+                    vsUsual > 0 ? 'bg-down-soft text-down' : 'bg-up-soft text-up'
+                  )}
+                >
+                  {vsUsual > 0 ? '▲' : '▼'} {Math.abs(vsUsual)}% vs your usual day
+                </span>
+              )}
+              {todayTotal === 0 && <p className="mt-1.5 text-[12px] text-faint">Nothing logged yet today.</p>}
+            </div>
+
+            <div className="flex shrink-0 gap-2">
+              <button
+                type="button"
+                onClick={() => setCreating(true)}
+                aria-label="Add manually"
+                className="grid size-9 place-items-center rounded-xl bg-sunken text-dim transition active:scale-95"
+              >
+                <Plus size={18} />
+              </button>
+              {messages.length > 0 && (
+                <button
+                  type="button"
+                  onClick={clearThread}
+                  aria-label="Clear thread"
+                  className="grid size-9 place-items-center rounded-xl bg-sunken text-dim transition active:scale-95"
+                >
+                  <Trash2 size={16} />
+                </button>
+              )}
+            </div>
           </div>
-          <button
-            type="button"
-            onClick={() => setCreating(true)}
-            aria-label="Add manually"
-            className="grid size-9 place-items-center rounded-xl bg-sunken text-dim active:scale-95"
-          >
-            <Plus size={18} />
-          </button>
-          {messages.length > 0 && (
-            <button
-              type="button"
-              onClick={clearThread}
-              aria-label="Clear thread"
-              className="grid size-9 place-items-center rounded-xl bg-sunken text-dim active:scale-95"
-            >
-              <Trash2 size={16} />
-            </button>
-          )}
+
+          {/* the last seven days, so today reads in context */}
+          <div className="mt-3.5 flex h-10 items-end gap-1.5">
+            {week.map((d) => {
+              const isToday = d.date === today;
+              return (
+                <div key={d.date} className="flex flex-1 flex-col items-center gap-1.5">
+                  <div
+                    className="w-full rounded-[3px] transition-[height] duration-500"
+                    style={{
+                      height: Math.max(d.total > 0 ? 4 : 2, (d.total / weekMax) * 26),
+                      background: isToday ? 'var(--color-brand)' : 'var(--color-line-strong)',
+                      opacity: d.total === 0 ? 0.35 : isToday ? 1 : 0.7,
+                    }}
+                  />
+                  <span className={cx('text-[9px] font-bold', isToday ? 'text-brand' : 'text-faint')}>
+                    {WEEKDAYS_SHORT[fromLocalDate(d.date).getDay()][0]}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
         </div>
-        <div className="mt-2 flex items-center gap-2">
+
+        <div className="mt-2.5 flex items-center gap-2">
           <button
             type="button"
             onClick={() => setShowDate(true)}
             className={cx(
-              'rounded-full px-3 py-1.5 text-[12.5px] font-bold transition active:scale-95',
-              pinnedIsToday ? 'bg-sunken text-dim' : 'bg-brand-soft text-brand'
+              'rounded-full border px-3 py-1.5 text-[12.5px] font-bold transition active:scale-95',
+              pinnedIsToday ? 'border-line bg-sunken text-dim' : 'border-transparent bg-brand-soft text-brand'
             )}
           >
             Adding to · {dayLabel(pinnedDate)}
@@ -191,22 +243,6 @@ export default function AddPage() {
               title="What did you spend?"
               body="Write it the way you would say it. The amount and what it was for is enough — add a day only if it was not today."
             />
-            <div className="mx-auto flex w-full max-w-sm flex-col gap-2">
-              {HINTS.map((h) => (
-                <button
-                  key={h.text}
-                  type="button"
-                  onClick={() => {
-                    setInput(h.text);
-                    taRef.current?.focus();
-                  }}
-                  className="flex items-center gap-2.5 rounded-xl border border-line bg-surface px-3.5 py-2.5 text-left transition active:scale-[0.98]"
-                >
-                  <span className="text-[13.5px] font-semibold">{h.text}</span>
-                  <span className="text-[11px] text-faint">{h.note}</span>
-                </button>
-              ))}
-            </div>
           </div>
         )}
 
