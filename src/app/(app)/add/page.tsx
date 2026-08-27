@@ -10,7 +10,7 @@ import { TxnEditor } from '@/components/TxnEditor';
 import { CategoryIcon, IconTile } from '@/lib/icons';
 import { ArrowUp, LayoutGrid, MessageSquareText, Plus, Trash2, X } from 'lucide-react';
 import { Chip, EmptyState, Spinner, cx } from '@/components/ui';
-import { WEEKDAYS_SHORT, addDays, dayLabel, fromLocalDate, shortDayLabel, todayLocal } from '@/lib/format';
+import { dayLabel, shortDayLabel, todayLocal } from '@/lib/format';
 import type { ChatMessage, TxnView } from '@/lib/types';
 
 
@@ -45,23 +45,6 @@ export default function AddPage() {
   );
   const pinnedIsToday = pinnedDate === today;
 
-  // last 7 days, so the header can show today in context rather than alone
-  const week = useMemo(() => {
-    const from = addDays(today, -6);
-    const totals = new Map<string, number>();
-    for (const t of txns) {
-      if (t.type !== 'expense' || t.local_date < from || t.local_date > today) continue;
-      totals.set(t.local_date, (totals.get(t.local_date) ?? 0) + t.amount_minor);
-    }
-    return Array.from({ length: 7 }, (_, i) => {
-      const date = addDays(from, i);
-      return { date, total: totals.get(date) ?? 0 };
-    });
-  }, [txns, today]);
-
-  const weekMax = Math.max(1, ...week.map((d) => d.total));
-  const weekAvg = week.reduce((a, b) => a + b.total, 0) / (week.length || 1);
-  const vsUsual = weekAvg > 0 ? Math.round(((todayTotal - weekAvg) / weekAvg) * 100) : null;
 
   const send = useCallback(async () => {
     const text = input.trim();
@@ -150,67 +133,35 @@ export default function AddPage() {
     <div className="flex min-h-[calc(100dvh-72px)] flex-col">
       {/* header */}
       <header className="sticky top-0 z-20 bg-bg/95 px-4 pt-3 pb-2 backdrop-blur-lg">
-        <div className="rounded-2xl border border-line bg-surface p-4 shadow-[var(--shadow-card)]">
-          <div className="flex items-start gap-3">
-            <div className="min-w-0 flex-1">
-              <p className="text-[11.5px] font-bold uppercase tracking-[0.08em] text-dim">Spent today</p>
-              <p className="tabular mt-0.5 text-[34px] font-extrabold leading-none">{fmt(todayTotal)}</p>
-              {vsUsual !== null && todayTotal > 0 && (
-                <span
-                  className={cx(
-                    'mt-2 inline-block rounded-full px-2 py-0.5 text-[11px] font-bold',
-                    vsUsual > 0 ? 'bg-down-soft text-down' : 'bg-up-soft text-up'
-                  )}
-                >
-                  {vsUsual > 0 ? '▲' : '▼'} {Math.abs(vsUsual)}% vs your usual day
-                </span>
-              )}
-              {todayTotal === 0 && <p className="mt-1.5 text-[12px] text-faint">Nothing logged yet today.</p>}
-            </div>
-
-            <div className="flex shrink-0 gap-2">
-              <button
-                type="button"
-                onClick={() => setCreating(true)}
-                aria-label="Add manually"
-                className="grid size-9 place-items-center rounded-xl bg-sunken text-dim transition active:scale-95"
-              >
-                <Plus size={18} />
-              </button>
-              {messages.length > 0 && (
-                <button
-                  type="button"
-                  onClick={clearThread}
-                  aria-label="Clear thread"
-                  className="grid size-9 place-items-center rounded-xl bg-sunken text-dim transition active:scale-95"
-                >
-                  <Trash2 size={16} />
-                </button>
-              )}
-            </div>
+        <div
+          className="flex items-center gap-3 rounded-2xl border bg-brand-soft px-4 py-3"
+          style={{ borderColor: 'color-mix(in oklab, var(--color-brand) 22%, transparent)' }}
+        >
+          <div className="min-w-0 flex-1">
+            <p className="text-[10.5px] font-extrabold uppercase tracking-[0.11em] text-brand opacity-85">
+              Spent today
+            </p>
+            <p className="tabular mt-0.5 text-[30px] font-extrabold leading-none text-brand">{fmt(todayTotal)}</p>
           </div>
 
-          {/* the last seven days, so today reads in context */}
-          <div className="mt-3.5 flex h-10 items-end gap-1.5">
-            {week.map((d) => {
-              const isToday = d.date === today;
-              return (
-                <div key={d.date} className="flex flex-1 flex-col items-center gap-1.5">
-                  <div
-                    className="w-full rounded-[3px] transition-[height] duration-500"
-                    style={{
-                      height: Math.max(d.total > 0 ? 4 : 2, (d.total / weekMax) * 26),
-                      background: isToday ? 'var(--color-brand)' : 'var(--color-line-strong)',
-                      opacity: d.total === 0 ? 0.35 : isToday ? 1 : 0.7,
-                    }}
-                  />
-                  <span className={cx('text-[9px] font-bold', isToday ? 'text-brand' : 'text-faint')}>
-                    {WEEKDAYS_SHORT[fromLocalDate(d.date).getDay()][0]}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
+          <button
+            type="button"
+            onClick={() => setCreating(true)}
+            aria-label="Add manually"
+            className="grid size-[34px] shrink-0 place-items-center rounded-xl bg-brand text-on-brand transition active:scale-90"
+          >
+            <Plus size={18} />
+          </button>
+          {messages.length > 0 && (
+            <button
+              type="button"
+              onClick={clearThread}
+              aria-label="Clear thread"
+              className="shrink-0 text-brand opacity-60 transition active:scale-90"
+            >
+              <Trash2 size={16} />
+            </button>
+          )}
         </div>
 
         <div className="mt-2.5 flex items-center gap-2">
@@ -218,8 +169,8 @@ export default function AddPage() {
             type="button"
             onClick={() => setShowDate(true)}
             className={cx(
-              'rounded-full border px-3 py-1.5 text-[12.5px] font-bold transition active:scale-95',
-              pinnedIsToday ? 'border-line bg-sunken text-dim' : 'border-transparent bg-brand-soft text-brand'
+              'rounded-full border border-line bg-sunken px-3 py-1.5 text-[12.5px] font-bold transition active:scale-95',
+              pinnedIsToday ? 'text-dim' : 'text-brand'
             )}
           >
             Adding to · {dayLabel(pinnedDate)}
