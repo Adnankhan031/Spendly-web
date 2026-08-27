@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { User } from '@supabase/supabase-js';
 import { supabaseBrowser } from './supabase/client';
 import * as q from './queries';
@@ -27,6 +27,7 @@ type Store = {
   setPinnedDate: (d: string) => void;
   fmt: (minor: number) => string;
   fmtCompact: (minor: number) => string;
+  displayName: string;
   refresh: () => Promise<void>;
 };
 
@@ -44,14 +45,24 @@ export function StoreProvider({ user, children }: { user: User; children: React.
   const [cycleStartDay, setDay] = useState(1);
   const [pinnedDate, setPinnedDate] = useState(todayLocal());
 
+  // Seeding and the catalogue migrations only need to happen once per visit,
+  // not after every entry the user adds.
+  const migrated = useRef(false);
+
   const refresh = useCallback(async () => {
     try {
       setError(null);
-      await q.ensureSeeded(user.id);
-      let cats = await q.fetchCategories();
-      // Categories created before the icon set existed hold emoji; rewrite once.
-      cats = await q.migrateCategoryIcons(cats);
-      cats = await q.syncSeedCategories(user.id, cats);
+      let cats: Category[];
+
+      if (!migrated.current) {
+        await q.ensureSeeded(user.id);
+        cats = await q.fetchCategories();
+        cats = await q.migrateCategoryIcons(cats);
+        cats = await q.syncSeedCategories(user.id, cats);
+        migrated.current = true;
+      } else {
+        cats = await q.fetchCategories();
+      }
 
       const [accs, rows, als, buds, settings] = await Promise.all([
         q.fetchAccounts(),
@@ -68,7 +79,13 @@ export function StoreProvider({ user, children }: { user: User; children: React.
       if (settings.currencyCode && CURRENCIES.some((c) => c.code === settings.currencyCode)) {
         setCode(settings.currencyCode);
       }
-      const day = Number(settings.cycleStartDay ?? 1);
+      // Fall back to what was chosen at signup before defaulting.
+      const meta = (user.user_metadata ?? {}) as { currency_code?: string; cycle_start_day?: number };
+      if (!settings.currencyCode && meta.currency_code && CURRENCIES.some((c) => c.code === meta.currency_code)) {
+        setCode(meta.currency_code);
+        void q.setSetting(user.id, 'currencyCode', meta.currency_code);
+      }
+      const day = Number(settings.cycleStartDay ?? meta.cycle_start_day ?? 1);
       if (Number.isFinite(day) && day >= 1 && day <= 31) setDay(day);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -140,6 +157,10 @@ export function StoreProvider({ user, children }: { user: User; children: React.
     setPinnedDate,
     fmt,
     fmtCompact,
+    displayName:
+      ((user.user_metadata ?? {}) as { full_name?: string }).full_name?.trim() ||
+      user.email?.split('@')[0] ||
+      'there',
     refresh,
   };
 

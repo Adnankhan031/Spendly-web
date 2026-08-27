@@ -1,20 +1,57 @@
-import { redirect } from 'next/navigation';
+'use client';
+
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { supabaseServer } from '@/lib/supabase/server';
+import type { User } from '@supabase/supabase-js';
+import { isSupabaseConfigured, supabaseBrowser } from '@/lib/supabase/client';
 import { StoreProvider } from '@/lib/store';
 import { TabBar } from '@/components/TabBar';
 import { PageTransition } from '@/components/PageTransition';
+import { Spinner } from '@/components/ui';
 
-// These screens are per-user, so there is nothing to prerender.
-export const dynamic = 'force-dynamic';
+/**
+ * The app shell is a client component on purpose.
+ *
+ * It used to be a server component with force-dynamic, so every tab change cost
+ * a server render plus a network call to Supabase to re-verify the user — on top
+ * of the identical call the proxy had already made. Reading the session from the
+ * cookie in the browser is instant, it lets the tab pages render statically, and
+ * because a layout persists across sibling navigations this runs once per visit
+ * rather than once per tab.
+ *
+ * Security is unchanged: row-level security is what actually protects the data,
+ * so a forged session still reads nothing.
+ */
+export default function AppLayout({ children }: { children: React.ReactNode }) {
+  const router = useRouter();
+  const [user, setUser] = useState<User | null | undefined>(undefined);
 
-export default async function AppLayout({ children }: { children: React.ReactNode }) {
-  const supabase = await supabaseServer();
+  useEffect(() => {
+    if (!isSupabaseConfigured()) return;
+    const supabase = supabaseBrowser();
 
-  // Not configured yet. Render the pointer inline rather than redirecting —
-  // a redirect from a layout is evaluated at build time and takes the build
-  // down before the environment variables have been set.
-  if (!supabase) {
+    supabase.auth.getSession().then(({ data }) => {
+      if (data.session) {
+        setUser(data.session.user);
+      } else {
+        setUser(null);
+        router.replace('/login');
+      }
+    });
+
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session) {
+        setUser(session.user);
+      } else {
+        setUser(null);
+        router.replace('/login');
+      }
+    });
+    return () => sub.subscription.unsubscribe();
+  }, [router]);
+
+  if (!isSupabaseConfigured()) {
     return (
       <main className="mx-auto flex min-h-dvh max-w-sm flex-col justify-center gap-4 px-6 text-center">
         <h1 className="text-2xl font-extrabold tracking-tight">Connect Supabase</h1>
@@ -29,10 +66,15 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     );
   }
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect('/login');
+  if (user === undefined) {
+    return (
+      <div className="grid min-h-dvh place-items-center text-dim">
+        <Spinner size={22} />
+      </div>
+    );
+  }
+
+  if (!user) return null;
 
   return (
     <StoreProvider user={user}>

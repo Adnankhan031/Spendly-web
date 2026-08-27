@@ -40,7 +40,8 @@ type Panel = 'none' | 'categories' | 'budgets' | 'accounts' | 'learned';
 type ThemeMode = 'system' | 'light' | 'dark';
 
 export default function SettingsPage() {
-  const { user, txns, aliases, currency, setCurrencyCode, cycleStartDay, setCycleStartDay, refresh } = useStore();
+  const { user, txns, aliases, currency, setCurrencyCode, cycleStartDay, setCycleStartDay, displayName, refresh } =
+    useStore();
   const [panel, setPanel] = useState<Panel>('none');
   const [theme, setTheme] = useState<ThemeMode>('dark');
   const [busy, setBusy] = useState<string | null>(null);
@@ -100,7 +101,7 @@ export default function SettingsPage() {
   return (
     <div className="px-4 pb-10">
       <PageTitle
-        title="Settings"
+        title={`Hi, ${displayName}`}
         subtitle={`${txns.length} entries${since ? ` since ${dayLabel(since)}` : ''} · ${aliases.length} learned words`}
       />
       <p className="mt-1 text-[12px] text-faint">{user.email}</p>
