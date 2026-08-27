@@ -31,7 +31,8 @@ import { CategoryIcon, ICON_CHOICES, IconTile } from '@/lib/icons';
 import { CATEGORY_COLORS } from '@/lib/colors';
 import { CURRENCIES } from '@/lib/currency';
 import { exportCsv, exportPdf, exportXlsx } from '@/lib/export';
-import { currentMonth, dayLabel, monthEnd, monthLabel, monthStart, toMinor } from '@/lib/format';
+import { currentMonth, dayLabel, monthEnd, monthLabel, monthStart, toMinor, todayLocal } from '@/lib/format';
+import { cycleLabel, currentCycle } from '@/lib/cycle';
 import { totalsByCategory } from '@/lib/analytics';
 import type { Category } from '@/lib/types';
 
@@ -39,7 +40,7 @@ type Panel = 'none' | 'categories' | 'budgets' | 'accounts' | 'learned';
 type ThemeMode = 'system' | 'light' | 'dark';
 
 export default function SettingsPage() {
-  const { user, txns, aliases, currency, setCurrencyCode, refresh } = useStore();
+  const { user, txns, aliases, currency, setCurrencyCode, cycleStartDay, setCycleStartDay, refresh } = useStore();
   const [panel, setPanel] = useState<Panel>('none');
   const [theme, setTheme] = useState<ThemeMode>('dark');
   const [busy, setBusy] = useState<string | null>(null);
@@ -121,6 +122,50 @@ export default function SettingsPage() {
           </div>
         </Card>
       </Link>
+
+      <SectionTitle>Your month</SectionTitle>
+      <Card>
+        <p className="text-[12.5px] leading-5 text-dim">
+          If your salary lands on a set day, your month probably runs from that day rather than the 1st. Overview,
+          budgets and insights all follow this.
+        </p>
+
+        <div className="mt-4 flex items-center gap-3">
+          <button
+            type="button"
+            disabled={cycleStartDay <= 1}
+            onClick={() => setCycleStartDay(cycleStartDay - 1)}
+            className="grid size-10 shrink-0 place-items-center rounded-xl bg-sunken text-lg font-bold transition active:scale-90 disabled:opacity-35"
+          >
+            –
+          </button>
+          <div className="flex-1 text-center">
+            <p className="text-[26px] font-extrabold leading-none text-brand">{ordinal(cycleStartDay)}</p>
+            <p className="mt-1 text-[11px] text-faint">starts on the</p>
+          </div>
+          <button
+            type="button"
+            disabled={cycleStartDay >= 31}
+            onClick={() => setCycleStartDay(cycleStartDay + 1)}
+            className="grid size-10 shrink-0 place-items-center rounded-xl bg-sunken text-lg font-bold transition active:scale-90 disabled:opacity-35"
+          >
+            +
+          </button>
+        </div>
+
+        <div className="mt-3 rounded-xl bg-brand-soft px-3 py-2.5">
+          <p className="text-[10.5px] font-extrabold uppercase tracking-[0.08em] text-brand">Right now that means</p>
+          <p className="mt-0.5 text-[14.5px] font-bold">
+            {cycleLabel(currentCycle(todayLocal(), cycleStartDay), cycleStartDay)}
+          </p>
+        </div>
+
+        {cycleStartDay > 28 && (
+          <p className="mt-2 text-[11.5px] leading-4 text-warn">
+            Months shorter than this start on their last day instead — February included.
+          </p>
+        )}
+      </Card>
 
       <SectionTitle>Appearance</SectionTitle>
       <Card>
@@ -260,6 +305,11 @@ export default function SettingsPage() {
 }
 
 /* ------------------------------------------------------------------ shared */
+
+function ordinal(n: number) {
+  const suffix = n % 100 >= 11 && n % 100 <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] || 'th';
+  return `${n}${suffix}`;
+}
 
 function PanelHeader({ title, onBack, action }: { title: string; onBack: () => void; action?: React.ReactNode }) {
   return (

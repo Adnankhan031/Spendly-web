@@ -90,35 +90,38 @@ export type MonthStats = {
   overBudget: { name: string; color: string; used: number; limit: number }[];
 };
 
-export function monthStats(txns: TxnView[], budgets: Budget[], ym: string): MonthStats {
-  const from = monthStart(ym);
-  const to = monthEnd(ym);
+export function periodStats(
+  txns: TxnView[],
+  budgets: Budget[],
+  from: string,
+  to: string,
+  prevFrom: string,
+  prevTo: string
+): MonthStats {
   const today = todayLocal();
-
   const expense = sumRange(txns, from, to, 'expense');
   const income = sumRange(txns, from, to, 'income');
   const byCategory = totalsByCategory(txns, from, to, 'expense');
   const count = txns.filter((t) => inRange(t, from, to)).length;
 
-  const total = daysInMonth(ym);
+  const total = daySpan(from, to);
   const map = dailyTotals(txns, from, to);
   const daily = Array.from({ length: total }, (_, i) => {
-    const date = `${ym}-${pad2(i + 1)}`;
-    return { label: String(i + 1), value: map.get(date) ?? 0, highlight: date === today };
+    const date = addDays(from, i);
+    return { label: String(fromLocalDate(date).getDate()), value: map.get(date) ?? 0, highlight: date === today };
   });
 
-  const isCurrent = monthKey(today) === ym;
-  const elapsed = isCurrent ? fromLocalDate(today).getDate() : total;
+  // "so far" only makes sense inside the period we are actually living in
+  const isCurrent = today >= from && today <= to;
+  const elapsed = isCurrent ? daySpan(from, today) : total;
   const avgPerDay = elapsed > 0 ? expense / elapsed : 0;
 
-  const prevYm = shiftMonth(ym, -1);
-  const prevExpense = sumRange(txns, monthStart(prevYm), monthEnd(prevYm), 'expense');
-
+  const prevExpense = sumRange(txns, prevFrom, prevTo, 'expense');
   const overall = budgets.find((b) => b.category_id === null);
   const perCat = new Map(budgets.filter((b) => b.category_id).map((b) => [b.category_id!, b.amount_minor]));
 
   return {
-    ym,
+    ym: from.slice(0, 7),
     from,
     to,
     expense,
@@ -138,6 +141,12 @@ export function monthStats(txns: TxnView[], budgets: Budget[], ym: string): Mont
       .filter((c) => c.used >= c.limit * 0.8)
       .sort((a, b) => b.used / b.limit - a.used / a.limit),
   };
+}
+
+/** Calendar-month convenience wrapper. */
+export function monthStats(txns: TxnView[], budgets: Budget[], ym: string): MonthStats {
+  const prev = shiftMonth(ym, -1);
+  return periodStats(txns, budgets, monthStart(ym), monthEnd(ym), monthStart(prev), monthEnd(prev));
 }
 
 /* ------------------------------------------------------------------ */
@@ -336,16 +345,16 @@ export type Insight = { icon: string; text: string; tone: 'good' | 'warn' | 'bad
 
 export function buildInsights(stats: MonthStats, fmt: (m: number) => string): Insight[] {
   const out: Insight[] = [];
-  const isCurrent = monthKey(todayLocal()) === stats.ym;
+  const today = todayLocal();
+  const isCurrent = today >= stats.from && today <= stats.to;
 
   if (stats.deltaPct !== null && Math.abs(stats.deltaPct) >= 8 && stats.prevExpense > 0) {
     const up = stats.deltaPct > 0;
     out.push({
       icon: up ? '📈' : '📉',
-      text: `You spent ${Math.abs(Math.round(stats.deltaPct))}% ${up ? 'more' : 'less'} than ${monthLabel(
-        shiftMonth(stats.ym, -1),
-        true
-      )} (${fmt(stats.prevExpense)}).`,
+      text: `You spent ${Math.abs(Math.round(stats.deltaPct))}% ${up ? 'more' : 'less'} than last period (${fmt(
+        stats.prevExpense
+      )}).`,
       tone: up ? 'warn' : 'good',
     });
   }
@@ -385,7 +394,7 @@ export function buildInsights(stats: MonthStats, fmt: (m: number) => string): In
   if (isCurrent && stats.expense > 0) {
     out.push({
       icon: '🔮',
-      text: `At ${fmt(Math.round(stats.avgPerDay))} a day you are on track for about ${fmt(stats.projected)} this month.`,
+      text: `At ${fmt(Math.round(stats.avgPerDay))} a day you are on track for about ${fmt(stats.projected)} this period.`,
       tone: 'neutral',
     });
   }
@@ -397,7 +406,7 @@ export function buildInsights(stats: MonthStats, fmt: (m: number) => string): In
       text:
         rate >= 0
           ? `You kept ${rate}% of what you earned — ${fmt(stats.net)} saved.`
-          : `You spent ${fmt(-stats.net)} more than you earned this month.`,
+          : `You spent ${fmt(-stats.net)} more than you earned this period.`,
       tone: rate >= 20 ? 'good' : rate >= 0 ? 'neutral' : 'bad',
     });
   }
@@ -406,7 +415,7 @@ export function buildInsights(stats: MonthStats, fmt: (m: number) => string): In
   if (stats.count >= 5 && zeroDays > 0) {
     out.push({
       icon: '🧘',
-      text: `${zeroDays} no-spend day${zeroDays === 1 ? '' : 's'} this month.`,
+      text: `${zeroDays} no-spend day${zeroDays === 1 ? '' : 's'} this period.`,
       tone: 'good',
     });
   }

@@ -3,30 +3,41 @@
 import React, { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useStore } from '@/lib/store';
-import { buildInsights, monthStats } from '@/lib/analytics';
+import { buildInsights, periodStats } from '@/lib/analytics';
+import { cycleEndFor, cycleLabel, cycleStartingIn, currentCycle, shiftCycle } from '@/lib/cycle';
+import * as q from '@/lib/queries';
 import { Bars, Donut, HBar, Ring } from '@/components/charts';
 import { CalendarX2, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Card, EmptyState, SectionTitle, Spinner, cx } from '@/components/ui';
 import { IconTile } from '@/lib/icons';
 import { MonthPicker } from '@/components/pickers';
 import { TxnEditor } from '@/components/TxnEditor';
-import { currentMonth, monthLabel, shiftMonth, shortDayLabel } from '@/lib/format';
+import { currentMonth, monthLabel, shiftMonth, shortDayLabel, todayLocal } from '@/lib/format';
 import type { TxnView } from '@/lib/types';
 
 export default function OverviewPage() {
-  const { txns, budgets, fmt, fmtCompact, loading } = useStore();
-  const [ym, setYm] = useState(currentMonth());
+  const { txns, budgets, fmt, fmtCompact, loading, cycleStartDay, refresh } = useStore();
+  const today = todayLocal();
+  const curCycle = currentCycle(today, cycleStartDay);
+  const [cycle, setCycle] = useState(curCycle);
+  const from = cycle;
+  const to = cycleEndFor(cycle, cycleStartDay);
+  const prevCycle = shiftCycle(cycle, -1, cycleStartDay);
   const [showMonth, setShowMonth] = useState(false);
   const [editing, setEditing] = useState<TxnView | null>(null);
 
-  const stats = useMemo(() => monthStats(txns, budgets, ym), [txns, budgets, ym]);
+  const stats = useMemo(
+    () => periodStats(txns, budgets, from, to, prevCycle, cycleEndFor(prevCycle, cycleStartDay)),
+    [txns, budgets, from, to, prevCycle, cycleStartDay]
+  );
   const insights = useMemo(() => buildInsights(stats, fmt), [stats, fmt]);
   const recent = useMemo(
     () => txns.filter((t) => t.local_date >= stats.from && t.local_date <= stats.to).slice(0, 6),
     [txns, stats.from, stats.to]
   );
+  const owed = useMemo(() => txns.filter((t) => t.reimbursable && !t.reimbursed_at), [txns]);
 
-  const isCurrent = ym === currentMonth();
+  const isCurrent = cycle === curCycle;
   const budgetPct = stats.budgetTotal > 0 ? stats.expense / stats.budgetTotal : 0;
 
   if (loading) {
@@ -40,19 +51,19 @@ export default function OverviewPage() {
   return (
     <div className="px-4 pb-6">
       <div className="flex items-center py-4">
-        <button type="button" onClick={() => setYm(shiftMonth(ym, -1))} className="grid size-9 place-items-center rounded-lg bg-sunken text-dim active:scale-90">
+        <button type="button" onClick={() => setCycle(shiftCycle(cycle, -1, cycleStartDay))} className="grid size-9 place-items-center rounded-lg bg-sunken text-dim active:scale-90">
           <ChevronLeft size={18} />
         </button>
         <button type="button" onClick={() => setShowMonth(true)} className="flex-1 text-center">
-          <span className="block text-xl font-extrabold tracking-tight">{monthLabel(ym)}</span>
+          <span className="block text-xl font-extrabold tracking-tight">{cycleLabel(cycle, cycleStartDay)}</span>
           <span className="block text-[11px] text-faint">
             {stats.count} {stats.count === 1 ? 'entry' : 'entries'}
           </span>
         </button>
         <button
           type="button"
-          onClick={() => ym < currentMonth() && setYm(shiftMonth(ym, 1))}
-          className={cx('grid size-9 place-items-center rounded-lg bg-sunken text-dim active:scale-90', ym >= currentMonth() && 'opacity-25')}
+          onClick={() => cycle < curCycle && setCycle(shiftCycle(cycle, 1, cycleStartDay))}
+          className={cx('grid size-9 place-items-center rounded-lg bg-sunken text-dim active:scale-90', cycle >= curCycle && 'opacity-25')}
         >
           <ChevronRight size={18} />
         </button>
@@ -62,7 +73,7 @@ export default function OverviewPage() {
         <Card>
           <EmptyState
             icon={CalendarX2}
-            title={`Nothing logged in ${monthLabel(ym, true)}`}
+            title={`Nothing logged in ${cycleLabel(cycle, cycleStartDay)}`}
             body={
               isCurrent
                 ? 'Head to the Add tab and type your first expense.'
@@ -93,7 +104,7 @@ export default function OverviewPage() {
                     )}
                   >
                     {stats.deltaPct > 0 ? '▲' : '▼'} {Math.abs(Math.round(stats.deltaPct))}% vs{' '}
-                    {monthLabel(shiftMonth(ym, -1), true)}
+                    last period
                   </p>
                 )}
               </div>
@@ -136,7 +147,7 @@ export default function OverviewPage() {
             </div>
             <div className="flex flex-col gap-3.5">
               {stats.byCategory.slice(0, 8).map((c) => (
-                <Link key={c.category_id} href={`/category/${c.category_id}?ym=${ym}`} className="block">
+                <Link key={c.category_id} href={`/category/${c.category_id}?from=${from}&to=${to}`} className="block">
                   <div className="mb-1.5 flex items-center gap-2">
                     <span className="text-sm">{c.icon}</span>
                     <span className="min-w-0 flex-1 truncate text-[13.5px] font-semibold">{c.name}</span>
@@ -150,6 +161,45 @@ export default function OverviewPage() {
               ))}
             </div>
           </Card>
+
+          {owed.length > 0 && (
+            <>
+              <SectionTitle>Coming back to you</SectionTitle>
+              <Card>
+                <div className="mb-3 flex items-center">
+                  <span className="flex-1 text-[12.5px] text-dim">
+                    {owed.length} unsettled {owed.length === 1 ? 'expense' : 'expenses'}
+                  </span>
+                  <span className="tabular text-lg font-bold text-up">
+                    {fmt(owed.reduce((a, b) => a + b.amount_minor, 0))}
+                  </span>
+                </div>
+                {owed.map((x, i) => (
+                  <div
+                    key={x.id}
+                    className={cx('flex items-center gap-2.5 py-2.5', i > 0 && 'border-t border-line')}
+                  >
+                    <IconTile name={x.cat_icon} color={x.cat_color} size={30} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[13.5px] font-semibold">{x.note || x.cat_name}</span>
+                      <span className="block text-[11px] text-faint">{shortDayLabel(x.local_date)}</span>
+                    </span>
+                    <span className="tabular text-[13.5px] font-bold">{fmt(x.amount_minor)}</span>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        await q.settleReimbursement(x.id);
+                        await refresh();
+                      }}
+                      className="rounded-full bg-up-soft px-2.5 py-1 text-[11px] font-bold text-up transition active:scale-95"
+                    >
+                      Got it
+                    </button>
+                  </div>
+                ))}
+              </Card>
+            </>
+          )}
 
           {insights.length > 0 && (
             <>
@@ -219,10 +269,10 @@ export default function OverviewPage() {
 
       <MonthPicker
         open={showMonth}
-        value={ym}
+        value={cycle.slice(0, 7)}
         onClose={() => setShowMonth(false)}
         onPick={(m) => {
-          setYm(m);
+          setCycle(cycleStartingIn(m, cycleStartDay));
           setShowMonth(false);
         }}
       />

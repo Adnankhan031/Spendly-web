@@ -44,6 +44,7 @@ export default function AddPage() {
     0
   );
   const pinnedIsToday = pinnedDate === today;
+  const todayCount = txns.filter((t) => t.local_date === today).length;
 
 
   const send = useCallback(async () => {
@@ -133,44 +134,45 @@ export default function AddPage() {
     <div className="flex min-h-[calc(100dvh-72px)] flex-col">
       {/* header */}
       <header className="sticky top-0 z-20 bg-bg/95 px-4 pt-3 pb-2 backdrop-blur-lg">
-        <div
-          className="flex items-center gap-3 rounded-2xl border bg-brand-soft px-4 py-3"
-          style={{ borderColor: 'color-mix(in oklab, var(--color-brand) 22%, transparent)' }}
-        >
-          <div className="min-w-0 flex-1">
-            <p className="text-[10.5px] font-extrabold uppercase tracking-[0.11em] text-brand opacity-85">
+        <div className="flex items-stretch overflow-hidden rounded-2xl border border-line bg-surface">
+          {/* the highlight is a rail and the number, not a slab of colour */}
+          <span className="w-[3px] shrink-0 bg-brand" />
+          <div className="min-w-0 flex-1 py-3 pl-3.5 pr-3">
+            <p className="text-[11.5px] font-semibold text-dim">
               Spent today
+              {todayCount > 0 && <span className="text-faint"> · {todayCount} {todayCount === 1 ? 'entry' : 'entries'}</span>}
             </p>
-            <p className="tabular mt-0.5 text-[30px] font-extrabold leading-none text-brand">{fmt(todayTotal)}</p>
+            <p className="tabular mt-0.5 text-[28px] font-extrabold leading-none">{fmt(todayTotal)}</p>
           </div>
-
-          <button
-            type="button"
-            onClick={() => setCreating(true)}
-            aria-label="Add manually"
-            className="grid size-[34px] shrink-0 place-items-center rounded-xl bg-brand text-on-brand transition active:scale-90"
-          >
-            <Plus size={18} />
-          </button>
-          {messages.length > 0 && (
+          <div className="flex shrink-0 items-center gap-1 pr-2.5">
+            {messages.length > 0 && (
+              <button
+                type="button"
+                onClick={clearThread}
+                aria-label="Clear thread"
+                className="p-2 text-faint transition active:scale-90"
+              >
+                <Trash2 size={16} />
+              </button>
+            )}
             <button
               type="button"
-              onClick={clearThread}
-              aria-label="Clear thread"
-              className="shrink-0 text-brand opacity-60 transition active:scale-90"
+              onClick={() => setCreating(true)}
+              aria-label="Add manually"
+              className="grid size-[34px] place-items-center rounded-xl bg-brand-soft text-brand transition active:scale-90"
             >
-              <Trash2 size={16} />
+              <Plus size={18} />
             </button>
-          )}
+          </div>
         </div>
 
-        <div className="mt-2.5 flex items-center gap-2">
+        <div className="mt-2 flex items-center gap-2">
           <button
             type="button"
             onClick={() => setShowDate(true)}
             className={cx(
-              'rounded-full border border-line bg-sunken px-3 py-1.5 text-[12.5px] font-bold transition active:scale-95',
-              pinnedIsToday ? 'text-dim' : 'text-brand'
+              'rounded-full px-2.5 py-1 text-[12px] font-semibold transition active:scale-95',
+              pinnedIsToday ? 'text-faint' : 'bg-brand-soft text-brand'
             )}
           >
             Adding to · {dayLabel(pinnedDate)}

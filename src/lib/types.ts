@@ -43,6 +43,9 @@ export type Txn = {
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
+  /** Money you expect back — a work expense, a shared bill, a claim. */
+  reimbursable: boolean;
+  reimbursed_at: string | null;
 };
 
 export type Budget = {
@@ -91,4 +94,5 @@ export type NewTxn = {
   raw_input?: string | null;
   source?: TxnSource;
   confidence?: number;
+  reimbursable?: boolean;
 };

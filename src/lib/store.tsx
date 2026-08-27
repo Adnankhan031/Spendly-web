@@ -21,6 +21,8 @@ type Store = {
   budgets: Budget[];
   currency: Currency;
   setCurrencyCode: (code: string) => void;
+  cycleStartDay: number;
+  setCycleStartDay: (d: number) => void;
   pinnedDate: string;
   setPinnedDate: (d: string) => void;
   fmt: (minor: number) => string;
@@ -39,6 +41,7 @@ export function StoreProvider({ user, children }: { user: User; children: React.
   const [aliases, setAliases] = useState<Alias[]>([]);
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [currencyCode, setCode] = useState(DEFAULT_CURRENCY);
+  const [cycleStartDay, setDay] = useState(1);
   const [pinnedDate, setPinnedDate] = useState(todayLocal());
 
   const refresh = useCallback(async () => {
@@ -48,6 +51,7 @@ export function StoreProvider({ user, children }: { user: User; children: React.
       let cats = await q.fetchCategories();
       // Categories created before the icon set existed hold emoji; rewrite once.
       cats = await q.migrateCategoryIcons(cats);
+      cats = await q.syncSeedCategories(user.id, cats);
 
       const [accs, rows, als, buds, settings] = await Promise.all([
         q.fetchAccounts(),
@@ -64,6 +68,8 @@ export function StoreProvider({ user, children }: { user: User; children: React.
       if (settings.currencyCode && CURRENCIES.some((c) => c.code === settings.currencyCode)) {
         setCode(settings.currencyCode);
       }
+      const day = Number(settings.cycleStartDay ?? 1);
+      if (Number.isFinite(day) && day >= 1 && day <= 31) setDay(day);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -79,6 +85,15 @@ export function StoreProvider({ user, children }: { user: User; children: React.
     (code: string) => {
       setCode(code);
       void q.setSetting(user.id, 'currencyCode', code);
+    },
+    [user.id]
+  );
+
+  const setCycleStartDay = useCallback(
+    (d: number) => {
+      const day = Math.min(31, Math.max(1, Math.round(d)));
+      setDay(day);
+      void q.setSetting(user.id, 'cycleStartDay', String(day));
     },
     [user.id]
   );
@@ -119,6 +134,8 @@ export function StoreProvider({ user, children }: { user: User; children: React.
     budgets,
     currency,
     setCurrencyCode,
+    cycleStartDay,
+    setCycleStartDay,
     pinnedDate,
     setPinnedDate,
     fmt,

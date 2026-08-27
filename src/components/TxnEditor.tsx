@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { CalendarDays, ChevronRight, Trash2 } from 'lucide-react';
+import { CalendarDays, Check, ChevronRight, Trash2 } from 'lucide-react';
 import { Button, Chip, Sheet, cx, inputClass } from './ui';
 import { CategoryPicker, DatePicker } from './pickers';
 import { IconTile } from '@/lib/icons';
@@ -31,6 +31,7 @@ export function TxnEditor({
   const [method, setMethod] = useState<string | null>(null);
   const [accountId, setAccountId] = useState<string | null>(null);
   const [note, setNote] = useState('');
+  const [reimbursable, setReimbursable] = useState(false);
   const [showCat, setShowCat] = useState(false);
   const [showDate, setShowDate] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -46,6 +47,7 @@ export function TxnEditor({
       setMethod(txn.method);
       setAccountId(txn.account_id);
       setNote(txn.note ?? '');
+      setReimbursable(!!txn.reimbursable);
     } else {
       setAmount(seed?.amount_minor ? String(seed.amount_minor / 100) : '');
       setType(seed?.type ?? 'expense');
@@ -54,6 +56,7 @@ export function TxnEditor({
       setMethod(seed?.method ?? null);
       setAccountId(seed?.account_id ?? null);
       setNote(seed?.note ?? '');
+      setReimbursable(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, txn?.id]);
@@ -78,6 +81,7 @@ export function TxnEditor({
         method,
         account_id: accountId,
         note: note.trim() || null,
+        reimbursable,
       };
       if (txn) await q.updateTxn(txn.id, body);
       else await q.insertTxn(user.id, { ...body, source: 'manual' });
@@ -177,6 +181,30 @@ export function TxnEditor({
           placeholder="Note (optional)"
           className={inputClass}
         />
+
+        <button
+          type="button"
+          onClick={() => setReimbursable((v) => !v)}
+          className={cx(
+            'flex items-center gap-3 rounded-xl border p-3 text-left transition active:scale-[0.99]',
+            reimbursable ? 'border-up bg-up-soft' : 'border-line bg-sunken'
+          )}
+        >
+          <span
+            className={cx(
+              'grid size-5 shrink-0 place-items-center rounded-md border-2',
+              reimbursable ? 'border-up bg-up text-white' : 'border-line-strong'
+            )}
+          >
+            {reimbursable && <Check size={13} />}
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-[14.5px] font-semibold">I get this back</span>
+            <span className="mt-0.5 block text-[11.5px] text-dim">
+              Reimbursable — tracked until it is paid back
+            </span>
+          </span>
+        </button>
 
         <Button onClick={save} loading={busy} disabled={!Number(amount)}>
           {txn ? 'Save changes' : 'Add entry'}

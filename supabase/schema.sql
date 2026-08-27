@@ -56,7 +56,14 @@ create table if not exists public.transactions (
   deleted_at      timestamptz
 );
 
+-- Money you expect back: a work expense, a shared bill, a claim.
+-- Added after the first release, so guarded for existing projects.
+alter table public.transactions add column if not exists reimbursable boolean not null default false;
+alter table public.transactions add column if not exists reimbursed_at timestamptz;
+
 create index if not exists idx_txn_user_date on public.transactions (user_id, local_date desc);
+create index if not exists idx_txn_owed on public.transactions (user_id)
+  where reimbursable and reimbursed_at is null and deleted_at is null;
 create index if not exists idx_txn_user_cat  on public.transactions (user_id, category_id);
 
 -- -------------------------------------------------------- aliases (learning)

@@ -128,6 +128,7 @@ export async function insertTxn(userId: string, t: NewTxn): Promise<Txn> {
       raw_input: t.raw_input ?? null,
       source: t.source ?? 'chat',
       confidence: t.confidence ?? 1,
+      reimbursable: t.reimbursable ?? false,
     })
     .select()
     .single();
@@ -153,6 +154,7 @@ export async function insertTxns(userId: string, rows: NewTxn[]): Promise<Txn[]>
         raw_input: t.raw_input ?? null,
         source: t.source ?? 'chat',
         confidence: t.confidence ?? 1,
+        reimbursable: t.reimbursable ?? false,
       }))
     )
     .select();
@@ -168,6 +170,7 @@ export async function updateTxn(id: string, patch: Partial<NewTxn>) {
   if (patch.account_id !== undefined) body.account_id = patch.account_id;
   if (patch.method !== undefined) body.method = patch.method;
   if (patch.note !== undefined) body.note = patch.note;
+  if (patch.reimbursable !== undefined) body.reimbursable = patch.reimbursable;
   if (patch.local_date !== undefined) {
     body.local_date = patch.local_date;
     body.occurred_at = new Date(`${patch.local_date}T12:00:00`).toISOString();
@@ -316,6 +319,68 @@ export async function wipeAllData(userId: string) {
   await db().from('transactions').delete().eq('user_id', userId);
   await db().from('aliases').delete().eq('user_id', userId);
   await db().from('budgets').delete().eq('user_id', userId);
+}
+
+/* ------------------------------------------------------------------ */
+/* reimbursements                                                      */
+/* ------------------------------------------------------------------ */
+
+/** Mark it settled — the expense stays, it just stops being owed to you. */
+export async function settleReimbursement(id: string) {
+  const { error } = await db().from('transactions').update({ reimbursed_at: new Date().toISOString() }).eq('id', id);
+  if (error) throw error;
+}
+
+export async function unsettleReimbursement(id: string) {
+  const { error } = await db().from('transactions').update({ reimbursed_at: null }).eq('id', id);
+  if (error) throw error;
+}
+
+/* ------------------------------------------------------------------ */
+/* seed catalogue sync                                                 */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Bring an existing account up to date with the shipped catalogue.
+ *
+ * New seed categories are inserted; for ones already present we union the
+ * keywords rather than overwrite, so vocabulary improvements land without
+ * discarding anything the user added. Names, colours and icons stay theirs.
+ */
+export async function syncSeedCategories(userId: string, cats: Category[]): Promise<Category[]> {
+  const byKey = new Map(cats.map((c) => [c.key, c]));
+  const missing = SEED_CATEGORIES.filter((c) => !byKey.has(c.id));
+
+  const updates = SEED_CATEGORIES.map((seed) => {
+    const have = byKey.get(seed.id);
+    if (!have) return null;
+    const current = have.keywords.split('|').filter(Boolean);
+    const merged = new Set([...current, ...seed.keywords]);
+    return merged.size === current.length ? null : { id: have.id, keywords: [...merged].join('|') };
+  }).filter(Boolean) as { id: string; keywords: string }[];
+
+  if (!missing.length && !updates.length) return cats;
+
+  if (missing.length) {
+    const base = cats.length;
+    await db()
+      .from('categories')
+      .insert(
+        missing.map((c, i) => ({
+          user_id: userId,
+          key: c.id,
+          name: c.name,
+          icon: c.icon,
+          color: c.color,
+          kind: c.kind,
+          keywords: c.keywords.join('|'),
+          sort: base + i,
+        }))
+      );
+  }
+  await Promise.all(updates.map((u) => db().from('categories').update({ keywords: u.keywords }).eq('id', u.id)));
+
+  return fetchCategories();
 }
 
 /* ------------------------------------------------------------------ */

@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useStore } from '@/lib/store';
 import { rangeStats } from '@/lib/analytics';
 import { CalendarRange, ChartNoAxesCombined } from 'lucide-react';
+import { cycleEndFor, cycleLabel, currentCycle } from '@/lib/cycle';
 import { Bars, Donut, GroupedBars, HBar, Legend, TrendLine } from '@/components/charts';
 import { Card, EmptyState, SectionTitle, Segmented, Spinner, cx, inputClass } from '@/components/ui';
 import { addDays, currentMonth, dayLabel, monthEnd, monthLabel, monthStart, shiftMonth, todayLocal } from '@/lib/format';
@@ -12,7 +13,7 @@ import { addDays, currentMonth, dayLabel, monthEnd, monthLabel, monthStart, shif
 type Period = 'month' | '3m' | '6m' | '12m' | 'all' | 'custom';
 
 const OPTIONS: { value: Period; label: string }[] = [
-  { value: 'month', label: 'Month' },
+  { value: 'month', label: 'Cycle' },
   { value: '3m', label: '3M' },
   { value: '6m', label: '6M' },
   { value: '12m', label: '1Y' },
@@ -21,7 +22,7 @@ const OPTIONS: { value: Period; label: string }[] = [
 ];
 
 export default function AnalyticsPage() {
-  const { txns, fmt, fmtCompact, loading } = useStore();
+  const { txns, fmt, fmtCompact, loading, cycleStartDay } = useStore();
   const [period, setPeriod] = useState<Period>('6m');
   // custom window, defaulting to the last 30 days so the pickers open somewhere useful
   const [from, setFrom] = useState(() => addDays(todayLocal(), -29));
@@ -29,7 +30,10 @@ export default function AnalyticsPage() {
 
   const bounds = useMemo(() => {
     const cur = currentMonth();
-    if (period === 'month') return { from: monthStart(cur), to: monthEnd(cur), label: monthLabel(cur) };
+    if (period === 'month') {
+      const c = currentCycle(todayLocal(), cycleStartDay);
+      return { from: c, to: cycleEndFor(c, cycleStartDay), label: cycleLabel(c, cycleStartDay) };
+    }
     if (period === 'all') {
       const first = txns.length ? txns[txns.length - 1].local_date : monthStart(cur);
       return { from: first, to: todayLocal(), label: 'All time' };
@@ -41,7 +45,7 @@ export default function AnalyticsPage() {
     }
     const back = period === '3m' ? 2 : period === '6m' ? 5 : 11;
     return { from: monthStart(shiftMonth(cur, -back)), to: monthEnd(cur), label: `Last ${back + 1} months` };
-  }, [period, txns, from, to]);
+  }, [period, txns, from, to, cycleStartDay]);
 
   const stats = useMemo(() => rangeStats(txns, bounds.from, bounds.to, bounds.label), [txns, bounds]);
 
