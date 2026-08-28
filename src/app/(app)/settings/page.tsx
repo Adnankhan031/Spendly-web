@@ -3,14 +3,15 @@
 import React, { useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
+  CalendarClock,
   ChevronLeft,
   ChevronRight,
   CirclePlus,
   Eye,
   EyeOff,
+  FileDown,
   FileSpreadsheet,
   FileText,
-  FileDown,
   Gauge,
   ListPlus,
   LogOut,
@@ -117,6 +118,25 @@ export default function SettingsPage() {
               <span className="block text-[15.5px] font-bold">Add by day, week or month</span>
               <span className="mt-0.5 block text-[12.5px] leading-5 text-dim">
                 Full manual control for any date — including months from before you started.
+              </span>
+            </span>
+            <ChevronRight size={17} className="text-faint" />
+          </div>
+        </Card>
+      </Link>
+
+      <SectionTitle>Planned</SectionTitle>
+      <Link href="/commitments" className="block">
+        <Card>
+          <div className="flex items-center gap-3">
+            <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-brand-soft text-brand">
+              <CalendarClock size={20} />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[15.5px] font-bold">Upcoming commitments</span>
+              <span className="mt-0.5 block text-[12.5px] leading-5 text-dim">
+                Rent, passes, renewals — anything you already know is coming. Confirm it on the day and it becomes a
+                normal entry.
               </span>
             </span>
             <ChevronRight size={17} className="text-faint" />

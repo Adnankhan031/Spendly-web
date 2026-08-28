@@ -93,6 +93,28 @@ create unique index if not exists idx_budget_cat
 create unique index if not exists idx_budget_overall
   on public.budgets (user_id) where category_id is null;
 
+-- --------------------------------------------------------- commitments
+-- Something you know is coming: rent, a travel pass, a yearly renewal.
+-- Deliberately not a transaction — nothing counts as spent until confirmed.
+create table if not exists public.commitments (
+  id            uuid primary key default gen_random_uuid(),
+  user_id       uuid not null references auth.users(id) on delete cascade,
+  name          text not null,
+  amount_minor  bigint not null check (amount_minor > 0),
+  category_id   uuid references public.categories(id) on delete set null,
+  due_date      date not null,
+  recurrence    text not null default 'once' check (recurrence in ('once','weekly','monthly','yearly')),
+  method        text,
+  note          text,
+  archived      boolean not null default false,
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now(),
+  deleted_at    timestamptz
+);
+
+create index if not exists idx_commit_due on public.commitments (user_id, due_date)
+  where not archived and deleted_at is null;
+
 -- ------------------------------------------------------------ chat messages
 create table if not exists public.messages (
   id          uuid primary key default gen_random_uuid(),
@@ -125,11 +147,12 @@ alter table public.aliases      enable row level security;
 alter table public.budgets      enable row level security;
 alter table public.messages     enable row level security;
 alter table public.settings     enable row level security;
+alter table public.commitments  enable row level security;
 
 do $$
 declare t text;
 begin
-  foreach t in array array['categories','accounts','transactions','aliases','budgets','messages','settings']
+  foreach t in array array['categories','accounts','transactions','aliases','budgets','messages','settings','commitments']
   loop
     execute format('drop policy if exists "own rows select" on public.%I', t);
     execute format('drop policy if exists "own rows insert" on public.%I', t);
@@ -157,6 +180,10 @@ end $$;
 
 drop trigger if exists trg_txn_touch on public.transactions;
 create trigger trg_txn_touch before update on public.transactions
+  for each row execute function public.touch_updated_at();
+
+drop trigger if exists trg_commit_touch on public.commitments;
+create trigger trg_commit_touch before update on public.commitments
   for each row execute function public.touch_updated_at();
 
 drop trigger if exists trg_cat_touch on public.categories;

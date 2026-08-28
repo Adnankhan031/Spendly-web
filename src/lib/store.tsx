@@ -6,7 +6,7 @@ import { supabaseBrowser } from './supabase/client';
 import * as q from './queries';
 import { formatMoney, todayLocal } from './format';
 import { CURRENCIES, DEFAULT_CURRENCY, currencyByCode, type Currency } from './currency';
-import type { Account, Alias, Budget, Category, TxnView } from './types';
+import type { Account, Alias, Budget, Category, Commitment, TxnView } from './types';
 
 type Store = {
   /** The layout redirects to /login before rendering, so this is always set. */
@@ -19,6 +19,7 @@ type Store = {
   aliases: Alias[];
   aliasMap: Map<string, string>;
   budgets: Budget[];
+  commitments: Commitment[];
   currency: Currency;
   setCurrencyCode: (code: string) => void;
   cycleStartDay: number;
@@ -41,6 +42,7 @@ export function StoreProvider({ user, children }: { user: User; children: React.
   const [txns, setTxns] = useState<TxnView[]>([]);
   const [aliases, setAliases] = useState<Alias[]>([]);
   const [budgets, setBudgets] = useState<Budget[]>([]);
+  const [commitments, setCommitments] = useState<Commitment[]>([]);
   const [currencyCode, setCode] = useState(DEFAULT_CURRENCY);
   const [cycleStartDay, setDay] = useState(1);
   const [pinnedDate, setPinnedDate] = useState(todayLocal());
@@ -64,11 +66,12 @@ export function StoreProvider({ user, children }: { user: User; children: React.
         cats = await q.fetchCategories();
       }
 
-      const [accs, rows, als, buds, settings] = await Promise.all([
+      const [accs, rows, als, buds, coms, settings] = await Promise.all([
         q.fetchAccounts(),
         q.fetchTxns(),
         q.fetchAliases(),
         q.fetchBudgets(),
+        q.fetchCommitments(),
         q.fetchSettings(),
       ]);
       setCategories(cats);
@@ -76,6 +79,7 @@ export function StoreProvider({ user, children }: { user: User; children: React.
       setTxns(q.withCategory(rows, cats));
       setAliases(als);
       setBudgets(buds);
+      setCommitments(coms);
       if (settings.currencyCode && CURRENCIES.some((c) => c.code === settings.currencyCode)) {
         setCode(settings.currencyCode);
       }
@@ -149,6 +153,7 @@ export function StoreProvider({ user, children }: { user: User; children: React.
     aliases,
     aliasMap,
     budgets,
+    commitments,
     currency,
     setCurrencyCode,
     cycleStartDay,

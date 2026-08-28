@@ -3,7 +3,18 @@
 import { supabaseBrowser } from './supabase/client';
 import { SEED_ACCOUNTS, SEED_CATEGORIES } from './seed';
 import { ICON_MAP, resolveIconName } from './icons';
-import type { Account, Alias, Budget, Category, ChatMessage, NewTxn, Txn, TxnView } from './types';
+import type {
+  Account,
+  Alias,
+  Budget,
+  Category,
+  ChatMessage,
+  Commitment,
+  NewTxn,
+  Recurrence,
+  Txn,
+  TxnView,
+} from './types';
 
 const db = () => supabaseBrowser();
 
@@ -319,6 +330,97 @@ export async function wipeAllData(userId: string) {
   await db().from('transactions').delete().eq('user_id', userId);
   await db().from('aliases').delete().eq('user_id', userId);
   await db().from('budgets').delete().eq('user_id', userId);
+}
+
+/* ------------------------------------------------------------------ */
+/* commitments                                                         */
+/* ------------------------------------------------------------------ */
+
+export async function fetchCommitments(): Promise<Commitment[]> {
+  const { data, error } = await db()
+    .from('commitments')
+    .select('*')
+    .is('deleted_at', null)
+    .eq('archived', false)
+    .order('due_date');
+  if (error) throw error;
+  return (data ?? []) as Commitment[];
+}
+
+export async function saveCommitment(
+  userId: string,
+  c: {
+    id?: string;
+    name: string;
+    amount_minor: number;
+    category_id: string | null;
+    due_date: string;
+    recurrence: Recurrence;
+    note?: string | null;
+  }
+) {
+  const body = {
+    name: c.name,
+    amount_minor: Math.round(c.amount_minor),
+    category_id: c.category_id,
+    due_date: c.due_date,
+    recurrence: c.recurrence,
+    note: c.note ?? null,
+  };
+  if (c.id) {
+    const { error } = await db().from('commitments').update(body).eq('id', c.id);
+    if (error) throw error;
+    return c.id;
+  }
+  const { data, error } = await db()
+    .from('commitments')
+    .insert({ ...body, user_id: userId })
+    .select()
+    .single();
+  if (error) throw error;
+  return (data as Commitment).id;
+}
+
+export async function deleteCommitment(id: string) {
+  const { error } = await db().from('commitments').update({ deleted_at: new Date().toISOString() }).eq('id', id);
+  if (error) throw error;
+}
+
+/** The next occurrence after `from`, or null for a one-off. */
+export function nextDue(from: string, recurrence: Recurrence): string | null {
+  if (recurrence === 'once') return null;
+  const [y, m, d] = from.split('-').map(Number);
+  const date = new Date(y, m - 1, d, 12);
+  if (recurrence === 'weekly') date.setDate(date.getDate() + 7);
+  else if (recurrence === 'monthly') date.setMonth(date.getMonth() + 1);
+  else date.setFullYear(date.getFullYear() + 1);
+  const p = (n: number) => (n < 10 ? '0' + n : String(n));
+  return `${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())}`;
+}
+
+/**
+ * Turn a commitment into a real expense. A one-off is archived; a recurring one
+ * rolls forward, so a single row keeps serving the obligation.
+ */
+export async function settleCommitment(userId: string, c: Commitment, fallbackCategoryId: string) {
+  await insertTxn(userId, {
+    amount_minor: c.amount_minor,
+    type: 'expense',
+    category_id: c.category_id ?? fallbackCategoryId,
+    local_date: c.due_date,
+    method: c.method,
+    note: c.note?.trim() || c.name,
+    source: 'manual',
+  });
+  await advanceCommitment(c);
+}
+
+/** Move past a due date without spending. */
+export async function advanceCommitment(c: Commitment) {
+  const next = nextDue(c.due_date, c.recurrence);
+  const body = next ? { due_date: next } : { archived: true };
+  const { error } = await db().from('commitments').update(body).eq('id', c.id);
+  if (error) throw error;
 }
 
 /* ------------------------------------------------------------------ */

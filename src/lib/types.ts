@@ -96,3 +96,31 @@ export type NewTxn = {
   confidence?: number;
   reimbursable?: boolean;
 };
+
+export type Recurrence = 'once' | 'weekly' | 'monthly' | 'yearly';
+
+/**
+ * Something you know is coming: rent, a pass, a yearly renewal.
+ * Not a transaction — nothing is counted as spent until it is confirmed.
+ */
+export type Commitment = {
+  id: string;
+  user_id: string;
+  name: string;
+  amount_minor: number;
+  category_id: string | null;
+  due_date: string;
+  recurrence: Recurrence;
+  method: string | null;
+  note: string | null;
+  archived: boolean;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+};
+
+export type CommitmentView = Commitment & {
+  cat_name: string;
+  cat_icon: string;
+  cat_color: string;
+};

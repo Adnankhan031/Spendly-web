@@ -12,11 +12,12 @@ import { Card, EmptyState, SectionTitle, Spinner, cx } from '@/components/ui';
 import { IconTile } from '@/lib/icons';
 import { MonthPicker } from '@/components/pickers';
 import { TxnEditor } from '@/components/TxnEditor';
-import { currentMonth, monthLabel, shiftMonth, shortDayLabel, todayLocal } from '@/lib/format';
+import { addDays, currentMonth, dayLabel, monthLabel, shiftMonth, shortDayLabel, todayLocal } from '@/lib/format';
 import type { TxnView } from '@/lib/types';
 
 export default function OverviewPage() {
-  const { txns, budgets, fmt, fmtCompact, loading, cycleStartDay, refresh } = useStore();
+  const { txns, budgets, commitments, fmt, fmtCompact, loading, cycleStartDay, categories, user, refresh } =
+    useStore();
   const today = todayLocal();
   const curCycle = currentCycle(today, cycleStartDay);
   const [cycle, setCycle] = useState(curCycle);
@@ -36,6 +37,13 @@ export default function OverviewPage() {
     [txns, stats.from, stats.to]
   );
   const owed = useMemo(() => txns.filter((t) => t.reimbursable && !t.reimbursed_at), [txns]);
+  // Only what is imminent — the full list lives on its own screen.
+  const due = useMemo(
+    () => commitments.filter((c) => c.due_date <= addDays(today, 14)),
+    [commitments, today]
+  );
+  const catById = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories]);
+  const fallbackCat = categories.find((c) => c.key === 'other')?.id ?? categories[0]?.id ?? '';
 
   const isCurrent = cycle === curCycle;
   const budgetPct = stats.budgetTotal > 0 ? stats.expense / stats.budgetTotal : 0;
@@ -161,6 +169,55 @@ export default function OverviewPage() {
               ))}
             </div>
           </Card>
+
+          {due.length > 0 && (
+            <>
+              <SectionTitle
+                right={
+                  <Link href="/commitments" className="text-xs font-bold text-brand">
+                    All
+                  </Link>
+                }
+              >
+                Coming up
+              </SectionTitle>
+              <Card>
+                <div className="mb-3 flex items-center">
+                  <span className="flex-1 text-[12.5px] text-dim">{due.length} due in the next two weeks</span>
+                  <span className="tabular text-lg font-bold text-brand">
+                    {fmt(due.reduce((a, b) => a + b.amount_minor, 0))}
+                  </span>
+                </div>
+                {due.map((c, i) => {
+                  const cat = c.category_id ? catById.get(c.category_id) : undefined;
+                  const overdue = c.due_date < today;
+                  return (
+                    <div key={c.id} className={cx('flex items-center gap-2.5 py-2.5', i > 0 && 'border-t border-line')}>
+                      <IconTile name={cat?.icon} color={cat?.color ?? '#8a9099'} size={30} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[13.5px] font-semibold">{c.name}</span>
+                        <span className={cx('block text-[11px]', overdue ? 'text-down' : 'text-faint')}>
+                          {overdue ? 'Overdue · ' : ''}
+                          {dayLabel(c.due_date)}
+                        </span>
+                      </span>
+                      <span className="tabular text-[13.5px] font-bold">{fmt(c.amount_minor)}</span>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          await q.settleCommitment(user.id, c, fallbackCat);
+                          await refresh();
+                        }}
+                        className="rounded-full bg-brand-soft px-2.5 py-1 text-[11px] font-bold text-brand transition active:scale-95"
+                      >
+                        Paid
+                      </button>
+                    </div>
+                  );
+                })}
+              </Card>
+            </>
+          )}
 
           {owed.length > 0 && (
             <>
