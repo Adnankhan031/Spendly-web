@@ -322,7 +322,10 @@ export async function clearMessages(userId: string) {
 }
 
 export async function setSetting(userId: string, key: string, value: string) {
-  await db().from('settings').upsert({ user_id: userId, key, value }, { onConflict: 'user_id,key' });
+  // The timestamp is what lets the phone decide whose value is newer.
+  await db()
+    .from('settings')
+    .upsert({ user_id: userId, key, value, updated_at: new Date().toISOString() }, { onConflict: 'user_id,key' });
 }
 
 export async function wipeAllData(userId: string) {

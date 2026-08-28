@@ -131,11 +131,15 @@ create index if not exists idx_msg_user_created on public.messages (user_id, cre
 
 -- ------------------------------------------------------------------ settings
 create table if not exists public.settings (
-  user_id  uuid not null references auth.users(id) on delete cascade,
-  key      text not null,
-  value    text not null,
+  user_id     uuid not null references auth.users(id) on delete cascade,
+  key         text not null,
+  value       text not null,
+  updated_at  timestamptz not null default now(),
   primary key (user_id, key)
 );
+
+-- Needed to reconcile preferences between devices, newest write winning.
+alter table public.settings add column if not exists updated_at timestamptz not null default now();
 
 -- ----------------------------------------------------------------------- RLS
 -- Every table is locked to its owner. Without this, one signed-in user could
