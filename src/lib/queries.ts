@@ -452,17 +452,45 @@ export async function unsettleReimbursement(id: string) {
  * keywords rather than overwrite, so vocabulary improvements land without
  * discarding anything the user added. Names, colours and icons stay theirs.
  */
+const PRUNED_FLAG = 'seedKeywordsPruned';
+
 export async function syncSeedCategories(userId: string, cats: Category[]): Promise<Category[]> {
   const byKey = new Map(cats.map((c) => [c.key, c]));
   const missing = SEED_CATEGORIES.filter((c) => !byKey.has(c.id));
+
+  // Union-merging alone leaves a keyword behind on its old category forever.
+  // "parents" belonged to Family & Kids before Family Support existed, so both
+  // rows claimed it and the keyword index kept the first claim in sort order --
+  // money sent home could never reach the newer, better category. Once per
+  // account, drop the words some *other* seed category now owns. Words the user
+  // typed in the keyword editor belong to no seed list and are never touched.
+  const settings = await fetchSettings();
+  const shouldPrune = settings[PRUNED_FLAG] !== '1';
+  const claimedBy = new Map<string, Set<string>>();
+  for (const seed of SEED_CATEGORIES) {
+    for (const k of seed.keywords) {
+      const key = k.trim().toLowerCase();
+      if (!key) continue;
+      claimedBy.set(key, (claimedBy.get(key) ?? new Set<string>()).add(seed.id));
+    }
+  }
 
   const updates = SEED_CATEGORIES.map((seed) => {
     const have = byKey.get(seed.id);
     if (!have) return null;
     const current = have.keywords.split('|').filter(Boolean);
-    const merged = new Set([...current, ...seed.keywords]);
-    return merged.size === current.length ? null : { id: have.id, keywords: [...merged].join('|') };
+    const kept = shouldPrune
+      ? current.filter((k) => {
+          const owners = claimedBy.get(k.trim().toLowerCase());
+          return !owners || owners.has(seed.id);
+        })
+      : current;
+    const merged = new Set([...kept, ...seed.keywords]);
+    const next = [...merged].join('|');
+    return next === have.keywords ? null : { id: have.id, keywords: next };
   }).filter(Boolean) as { id: string; keywords: string }[];
+
+  if (shouldPrune) await setSetting(userId, PRUNED_FLAG, '1');
 
   if (!missing.length && !updates.length) return cats;
 
