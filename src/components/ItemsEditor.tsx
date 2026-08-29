@@ -1,13 +1,14 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { Plus, Sparkles, Trash2, X } from 'lucide-react';
+import { Camera, Loader2, Plus, Sparkles, Trash2, X } from 'lucide-react';
 import { Button, Chip, Sheet, cx } from './ui';
 import { CategoryIcon } from '@/lib/icons';
 import { useStore } from '@/lib/store';
 import * as q from '@/lib/queries';
 import { classifyItem } from '@/lib/classify';
 import { toMinor } from '@/lib/format';
+import { compressImage, readReceipt } from '@/lib/receipt';
 import type { Category, TxnView } from '@/lib/types';
 
 type Row = {
@@ -48,6 +49,10 @@ export function ItemsEditor({
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(false);
   const [picking, setPicking] = useState<string | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const [scanError, setScanError] = useState<string | null>(null);
+  const [scanNote, setScanNote] = useState<string | null>(null);
+  const fileRef = React.useRef<HTMLInputElement>(null);
 
   const byId = useMemo(
     () => new Map<string, Category>([...categories, ...subCategories].map((c) => [c.id, c])),
@@ -99,6 +104,59 @@ export function ItemsEditor({
     );
   };
 
+  /**
+   * Photograph the bill and let the model split it.
+   *
+   * Every line still lands in the same editable rows, unsaved, so a misread
+   * price is corrected here rather than discovered in next month's totals.
+   */
+  const scan = async (file: File) => {
+    setScanning(true);
+    setScanError(null);
+    setScanNote(null);
+    try {
+      const dataUrl = await compressImage(file);
+      const receipt = await readReceipt(dataUrl);
+
+      if (!receipt.items.length) {
+        setScanError('No line items found. Try a straighter, brighter photo.');
+        return;
+      }
+
+      // Classify as the rows are built, so most arrive already sorted.
+      const scanned: Row[] = receipt.items.map((it) => {
+        const hit = classifyItem(it.name, ctx);
+        const key = hit.subKey ?? hit.categoryKey;
+        const cat = key ? byKey.get(key) : undefined;
+        return {
+          uid: `s${seq++}`,
+          name: it.name,
+          amount: String(it.amount_minor / 100),
+          categoryId: cat?.id ?? null,
+          pinned: false,
+          auto: !!cat,
+        };
+      });
+
+      // Replace empty starter rows; append to anything already typed.
+      setRows((rs) => {
+        const kept = rs.filter((r) => r.name.trim() || Number(r.amount) > 0);
+        return [...kept, ...scanned];
+      });
+
+      const named = scanned.filter((r) => r.categoryId).length;
+      setScanNote(
+        `${scanned.length} lines read${receipt.merchant ? ` from ${receipt.merchant}` : ''} · ` +
+          `${named} categorised automatically`
+      );
+    } catch (e) {
+      setScanError(e instanceof Error ? e.message : 'Could not read that photo.');
+    } finally {
+      setScanning(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  };
+
   const itemTotal = rows.reduce((a, r) => a + toMinor(Number(r.amount || '0')), 0);
   const gap = (txn?.amount_minor ?? 0) - itemTotal;
   const filled = rows.filter((r) => r.name.trim() && Number(r.amount) > 0);
@@ -131,6 +189,40 @@ export function ItemsEditor({
           <p className="py-6 text-center text-[13px] text-dim">Loading…</p>
         ) : (
           <>
+            {/* capture="environment" opens the rear camera on a phone and a
+                file picker on a desktop, so one control covers both */}
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) void scan(f);
+              }}
+            />
+            <button
+              type="button"
+              disabled={scanning}
+              onClick={() => fileRef.current?.click()}
+              className="flex items-center justify-center gap-2 rounded-xl bg-brand py-3 text-[14px] font-bold text-on-brand transition active:scale-[0.99] disabled:opacity-60"
+            >
+              {scanning ? <Loader2 size={16} className="animate-spin" /> : <Camera size={16} />}
+              {scanning ? 'Reading the receipt…' : 'Scan a receipt'}
+            </button>
+
+            {scanError && (
+              <p className="rounded-xl border border-down/40 bg-down-soft px-3 py-2 text-[12.5px] text-down">
+                {scanError}
+              </p>
+            )}
+            {scanNote && !scanError && (
+              <p className="rounded-xl border border-line bg-sunken px-3 py-2 text-[12.5px] text-dim">
+                {scanNote} — check the prices before saving.
+              </p>
+            )}
+
             <div className="flex flex-col gap-2">
               {rows.map((r) => {
                 const cat = r.categoryId ? byId.get(r.categoryId) : undefined;
