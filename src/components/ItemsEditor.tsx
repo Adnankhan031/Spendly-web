@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { Camera, Loader2, Plus, Sparkles, Trash2, X } from 'lucide-react';
+import { Camera, ImagePlus, Loader2, Plus, Sparkles, Trash2, X } from 'lucide-react';
 import { Button, Chip, Sheet, cx } from './ui';
 import { CategoryIcon } from '@/lib/icons';
 import { useStore } from '@/lib/store';
@@ -59,7 +59,8 @@ export function ItemsEditor({
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
   const [scanNote, setScanNote] = useState<string | null>(null);
-  const fileRef = React.useRef<HTMLInputElement>(null);
+  const cameraRef = React.useRef<HTMLInputElement>(null);
+  const galleryRef = React.useRef<HTMLInputElement>(null);
 
   const byId = useMemo(
     () => new Map<string, Category>([...categories, ...subCategories].map((c) => [c.id, c])),
@@ -160,7 +161,9 @@ export function ItemsEditor({
       setScanError(e instanceof Error ? e.message : 'Could not read that photo.');
     } finally {
       setScanning(false);
-      if (fileRef.current) fileRef.current.value = '';
+      // Clear both, or picking the same file twice fires no change event.
+      if (cameraRef.current) cameraRef.current.value = '';
+      if (galleryRef.current) galleryRef.current.value = '';
     }
   };
 
@@ -199,10 +202,14 @@ export function ItemsEditor({
           <p className="py-6 text-center text-[13px] text-dim">Loading…</p>
         ) : (
           <>
-            {/* capture="environment" opens the rear camera on a phone and a
-                file picker on a desktop, so one control covers both */}
+            {/*
+              Two inputs, not one. `capture` forces the camera on a phone and
+              removes the gallery option altogether, so a receipt photographed
+              earlier could not be used. Without `capture` a phone offers the
+              gallery and the files app.
+            */}
             <input
-              ref={fileRef}
+              ref={cameraRef}
               type="file"
               accept="image/*"
               capture="environment"
@@ -212,15 +219,37 @@ export function ItemsEditor({
                 if (f) void scan(f);
               }}
             />
-            <button
-              type="button"
-              disabled={scanning}
-              onClick={() => fileRef.current?.click()}
-              className="flex items-center justify-center gap-2 rounded-xl bg-brand py-3 text-[14px] font-bold text-on-brand transition active:scale-[0.99] disabled:opacity-60"
-            >
-              {scanning ? <Loader2 size={16} className="animate-spin" /> : <Camera size={16} />}
-              {scanning ? 'Reading the receipt…' : 'Scan a receipt'}
-            </button>
+            <input
+              ref={galleryRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) void scan(f);
+              }}
+            />
+
+            <div className="flex gap-2">
+              <button
+                type="button"
+                disabled={scanning}
+                onClick={() => cameraRef.current?.click()}
+                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-brand py-3 text-[14px] font-bold text-on-brand transition active:scale-[0.99] disabled:opacity-60"
+              >
+                {scanning ? <Loader2 size={16} className="animate-spin" /> : <Camera size={16} />}
+                {scanning ? 'Reading…' : 'Scan a receipt'}
+              </button>
+              <button
+                type="button"
+                disabled={scanning}
+                aria-label="Choose a photo"
+                onClick={() => galleryRef.current?.click()}
+                className="grid shrink-0 place-items-center rounded-xl border border-line bg-sunken px-4 text-dim transition active:scale-95 disabled:opacity-60"
+              >
+                <ImagePlus size={17} />
+              </button>
+            </div>
 
             {scanError && (
               <p className="rounded-xl border border-down/40 bg-down-soft px-3 py-2 text-[12.5px] text-down">
