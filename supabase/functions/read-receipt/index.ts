@@ -96,6 +96,13 @@ function extractJson(text: string): Parsed | null {
   }
 }
 
+/** Thrown so a spent quota is reported as such, not as an unreadable receipt. */
+class RateLimited extends Error {
+  constructor(public model: string, public retryAfter: string | null) {
+    super('rate limited');
+  }
+}
+
 async function callModel(model: string, key: string, dataUrl: string): Promise<Parsed | null> {
   const res = await fetch(OPENROUTER, {
     method: 'POST',
@@ -124,6 +131,13 @@ async function callModel(model: string, key: string, dataUrl: string): Promise<P
       temperature: 0,
     }),
   });
+
+  if (res.status === 429) {
+    // Free models have a daily cap. Trying the next one is still worth doing —
+    // the limits are per-model — but if they are all spent the user needs to be
+    // told that, not that their photo was unreadable.
+    throw new RateLimited(model, res.headers.get('retry-after'));
+  }
 
   if (!res.ok) {
     console.error(`${model} -> ${res.status} ${(await res.text()).slice(0, 300)}`);
@@ -172,14 +186,39 @@ Deno.serve(async (req: Request) => {
   if (image.length > 8_000_000) return json({ error: 'Image too large — resize before sending.' }, 413);
 
   const tried: string[] = [];
+  let limited = 0;
+  let retryAfter: string | null = null;
+
   for (const model of MODELS) {
     tried.push(model);
     try {
       const parsed = await callModel(model, key, image);
       if (parsed && parsed.items.length > 0) return json({ ...parsed, model, tried });
     } catch (e) {
+      if (e instanceof RateLimited) {
+        limited += 1;
+        retryAfter = retryAfter ?? e.retryAfter;
+        continue;
+      }
       console.error(`${model} threw`, e);
     }
+  }
+
+  if (limited === MODELS.length) {
+    return json(
+      {
+        error:
+          'The free daily limit is used up on every model. It resets on the OpenRouter schedule; add the lines by hand in the meantime.',
+        rateLimited: true,
+        retryAfter,
+        tried,
+      },
+      429
+    );
+  }
+
+  if (limited > 0) {
+    return json({ error: `No model could read this receipt (${limited} were rate limited).`, tried }, 502);
   }
 
   return json({ error: 'No model could read this receipt.', tried }, 502);

@@ -42,13 +42,28 @@ const newRow = (): Row => ({ uid: `r${seq++}`, name: '', amount: '', categoryId:
  * own lines, so the items genuinely do not add up to the total, and pretending
  * otherwise would make every figure slightly wrong.
  */
+/**
+ * A receipt read from a photo, before it is anything in the database.
+ *
+ * Scanning from the composer has no transaction to attach to yet, so the whole
+ * receipt is held here until the user confirms. Nothing is written until save.
+ */
+export type ReceiptDraft = {
+  merchant: string | null;
+  date: string;
+  total: number;
+  lines: { name: string; amount_minor: number }[];
+};
+
 export function ItemsEditor({
   open,
   txn,
+  draft,
   onClose,
 }: {
   open: boolean;
   txn: TxnView | null;
+  draft?: ReceiptDraft | null;
   onClose: () => void;
 }) {
   const { categories, subCategories, currency, fmt, user, refresh } = useStore();
@@ -78,7 +93,28 @@ export function ItemsEditor({
   );
 
   useEffect(() => {
-    if (!open || !txn) return;
+    if (!open) return;
+
+    if (!txn && draft) {
+      setRows(
+        draft.lines.map((l) => {
+          const hit = classifyItem(l.name, ctx);
+          const key = hit.subKey ?? hit.categoryKey;
+          const cat = key ? byKey.get(key) : undefined;
+          return {
+            uid: `d${seq++}`,
+            name: l.name,
+            amount: String(l.amount_minor / 100),
+            categoryId: cat?.id ?? null,
+            pinned: false,
+            auto: !!cat,
+          };
+        })
+      );
+      return;
+    }
+
+    if (!txn) return;
     setLoading(true);
     q.fetchItems(txn.id)
       .then((items) => {
@@ -97,7 +133,7 @@ export function ItemsEditor({
       })
       .catch(() => setRows([newRow()]))
       .finally(() => setLoading(false));
-  }, [open, txn]);
+  }, [open, txn, draft]);
 
   /** Guess a category from the product name, unless the user has set one. */
   const classify = (uid: string) => {
@@ -168,19 +204,52 @@ export function ItemsEditor({
   };
 
   const itemTotal = rows.reduce((a, r) => a + toMinor(Number(r.amount || '0')), 0);
-  const gap = (txn?.amount_minor ?? 0) - itemTotal;
+  const receiptTotal = txn?.amount_minor ?? draft?.total ?? 0;
+  const gap = receiptTotal - itemTotal;
   // Non-zero, not positive: a 値引 discount is a real line with a negative
   // amount. Requiring > 0 displayed it and then dropped it on save, which is
   // the worst of both — the basket looked itemised and silently was not.
   const filled = rows.filter((r) => r.name.trim() && Number(r.amount) !== 0);
 
   const save = async () => {
-    if (!txn) return;
     setBusy(true);
     try {
+      let targetId = txn?.id ?? null;
+
+      if (!targetId && draft) {
+        // File the receipt under whichever category the basket is mostly made
+        // of, so it lands somewhere sensible before the user reviews it.
+        const weight = new Map<string, number>();
+        for (const r of filled) {
+          const cat = r.categoryId ? byId.get(r.categoryId) : undefined;
+          const parent = cat?.parent_key ?? cat?.key;
+          if (parent) weight.set(parent, (weight.get(parent) ?? 0) + Math.abs(Number(r.amount) || 0));
+        }
+        const dominant = [...weight.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+        const catId =
+          categories.find((c) => c.key === dominant)?.id ??
+          categories.find((c) => c.key === 'groceries')?.id ??
+          categories.find((c) => c.key === 'other')?.id ??
+          categories[0]?.id ??
+          '';
+
+        const created = await q.insertTxn(user.id, {
+          amount_minor: draft.total > 0 ? draft.total : Math.round(itemTotal),
+          type: 'expense',
+          category_id: catId,
+          local_date: draft.date,
+          note: draft.merchant,
+          source: 'manual',
+          confidence: 0.9,
+        });
+        targetId = created.id;
+      }
+
+      if (!targetId) return;
+
       await q.replaceItems(
         user.id,
-        txn.id,
+        targetId,
         filled.map((r) => ({
           name: r.name.trim(),
           amount_minor: toMinor(Number(r.amount)),
@@ -338,12 +407,12 @@ export function ItemsEditor({
               </div>
               <div className="mt-1 flex justify-between">
                 <span className="text-dim">Receipt total</span>
-                <span className="tabular font-semibold">{fmt(txn?.amount_minor ?? 0)}</span>
+                <span className="tabular font-semibold">{fmt(receiptTotal)}</span>
               </div>
               <div
                 className={cx(
                   'mt-2 flex justify-between border-t border-line pt-2 font-bold',
-                  gap === 0 ? 'text-up' : Math.abs(gap) > (txn?.amount_minor ?? 0) * 0.35 ? 'text-down' : 'text-dim'
+                  gap === 0 ? 'text-up' : Math.abs(gap) > receiptTotal * 0.35 ? 'text-down' : 'text-dim'
                 )}
               >
                 <span>{gap === 0 ? 'Balanced' : gap > 0 ? 'Not accounted for' : 'Over the total'}</span>

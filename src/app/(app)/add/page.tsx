@@ -7,8 +7,10 @@ import { parseInput } from '@/lib/parser';
 import { runQuery, type Answer } from '@/lib/analytics';
 import { DatePicker } from '@/components/pickers';
 import { TxnEditor } from '@/components/TxnEditor';
+import { ItemsEditor, type ReceiptDraft } from '@/components/ItemsEditor';
+import { compressImage, readReceipt } from '@/lib/receipt';
 import { CategoryIcon, IconTile } from '@/lib/icons';
-import { ArrowUp, LayoutGrid, MessageSquareText, Plus, Trash2, X } from 'lucide-react';
+import { ArrowUp, Camera, LayoutGrid, Loader2, MessageSquareText, Plus, Trash2, X } from 'lucide-react';
 import { Chip, EmptyState, Spinner, cx } from '@/components/ui';
 import { dayLabel, shortDayLabel, todayLocal } from '@/lib/format';
 import { useKeyboardOpen } from '@/lib/useViewport';
@@ -29,6 +31,10 @@ export default function AddPage() {
   const [editing, setEditing] = useState<TxnView | null>(null);
   const [creating, setCreating] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
+  const [draft, setDraft] = useState<ReceiptDraft | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const [scanError, setScanError] = useState<string | null>(null);
+  const shotRef = useRef<HTMLInputElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
   // Only whether it is open — the height itself lives in CSS as --dock, so the
@@ -87,6 +93,36 @@ export default function AddPage() {
     0
   );
 
+
+  /**
+   * Photograph a receipt straight from the composer.
+   *
+   * The camera used to live inside the item editor, three taps down and only
+   * reachable once a transaction already existed — no use when the receipt in
+   * your hand is the thing you are trying to record.
+   */
+  const scanReceipt = async (file: File) => {
+    setScanning(true);
+    setScanError(null);
+    try {
+      const receipt = await readReceipt(await compressImage(file));
+      if (!receipt.items.length) {
+        setScanError('No line items found. Try a straighter, brighter photo.');
+        return;
+      }
+      setDraft({
+        merchant: receipt.merchant,
+        date: receipt.purchased_on || pinnedDate,
+        total: receipt.total ?? receipt.items.reduce((a, i) => a + i.amount_minor, 0),
+        lines: receipt.items.map((i) => ({ name: i.name, amount_minor: i.amount_minor })),
+      });
+    } catch (e) {
+      setScanError(e instanceof Error ? e.message : 'Could not read that photo.');
+    } finally {
+      setScanning(false);
+      if (shotRef.current) shotRef.current.value = '';
+    }
+  };
 
   const send = useCallback(async () => {
     const text = input.trim();
@@ -431,6 +467,14 @@ export default function AddPage() {
         </div>
       )}
 
+      {scanError && (
+        <div className="fixed inset-x-0 z-30 px-3" style={{ bottom: 'calc(var(--dock) + 58px)' }}>
+          <p className="mx-auto max-w-2xl rounded-xl border border-down/40 bg-down-soft px-3 py-2 text-[12.5px] text-down">
+            {scanError}
+          </p>
+        </div>
+      )}
+
       {/* composer */}
       <div
         className="fixed inset-x-0 z-30 border-t border-line bg-surface px-3 py-2.5"
@@ -447,6 +491,31 @@ export default function AddPage() {
             )}
           >
             <LayoutGrid size={18} />
+          </button>
+
+          {/* No `capture` attribute: a phone then offers the camera AND the
+              gallery, instead of forcing the camera and hiding saved photos. */}
+          <input
+            ref={shotRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) void scanReceipt(f);
+            }}
+          />
+          <button
+            type="button"
+            disabled={scanning}
+            aria-label="Scan a receipt"
+            onClick={() => shotRef.current?.click()}
+            className={cx(
+              'grid size-10 shrink-0 place-items-center rounded-xl transition active:scale-95 disabled:opacity-60',
+              scanning ? 'bg-brand-soft text-brand' : 'bg-sunken text-dim'
+            )}
+          >
+            {scanning ? <Loader2 size={18} className="animate-spin" /> : <Camera size={18} />}
           </button>
           <textarea
             ref={taRef}
@@ -493,6 +562,7 @@ export default function AddPage() {
           setShowDate(false);
         }}
       />
+      <ItemsEditor open={!!draft} txn={null} draft={draft} onClose={() => setDraft(null)} />
       <TxnEditor open={!!editing} txn={editing} onClose={() => setEditing(null)} />
       <TxnEditor open={creating} seed={{ local_date: pinnedDate }} onClose={() => setCreating(false)} />
     </div>
