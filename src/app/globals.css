@@ -217,3 +217,39 @@ textarea {
     animation: none;
   }
 }
+
+
+/* ------------------------------------------------------------------ */
+/* keyboard-aware docking                                              */
+/* ------------------------------------------------------------------ */
+
+/*
+ * `--kb` is written by useViewport from visualViewport. Expressing the dock in
+ * CSS rather than in React means a keyboard sliding open repaints one custom
+ * property instead of re-rendering the tree on every animation frame — which is
+ * what made the whole screen shake.
+ */
+:root {
+  --kb: 0px;
+  --dock: calc(72px + env(safe-area-inset-bottom, 0px));
+}
+
+html[data-kb='1'] {
+  --dock: var(--kb);
+}
+
+/* The tab bar has nowhere to go while the keyboard is up. */
+html[data-kb='1'] .tabbar {
+  transform: translateY(100%);
+  pointer-events: none;
+}
+
+.tabbar {
+  transition: transform 0.18s cubic-bezier(0.3, 0.8, 0.4, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tabbar {
+    transition: none;
+  }
+}

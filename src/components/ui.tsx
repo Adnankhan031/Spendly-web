@@ -1,6 +1,6 @@
 'use client';
 
-import { useKeyboardInset, useViewportHeight } from '@/lib/useViewport';
+import { useKeyboardOpen } from '@/lib/useViewport';
 import React from 'react';
 import { Loader2, X } from 'lucide-react';
 
@@ -282,12 +282,10 @@ function SheetShell({
   title?: string;
   children: React.ReactNode;
 }) {
-  const keyboard = useKeyboardInset();
-  const vh = useViewportHeight();
   // iOS draws the keyboard over the page instead of shrinking it, so a sheet
-  // sized in dvh keeps its buttons underneath the keyboard. Size and lift it
-  // from the visual viewport instead.
-  const maxHeight = vh ? Math.round(vh * 0.9) : undefined;
+  // sized in dvh keeps its buttons underneath the keyboard. Height and lift both
+  // come from --kb, in CSS, so the sheet does not re-render while it animates.
+  const keyboardOpen = useKeyboardOpen();
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col justify-end sm:items-center sm:justify-center">
@@ -301,11 +299,11 @@ function SheetShell({
         className={cx(
           'sheet-in relative w-full overflow-y-auto overscroll-contain border-line bg-raised shadow-[var(--shadow-pop)]',
           'rounded-t-3xl border-t sm:max-w-md sm:rounded-3xl sm:border',
-          keyboard === 0 && 'safe-b'
+          !keyboardOpen && 'safe-b'
         )}
         style={{
-          maxHeight: maxHeight ? `${maxHeight}px` : '88dvh',
-          marginBottom: keyboard > 0 ? keyboard : undefined,
+          maxHeight: 'calc(100dvh - var(--kb, 0px) - 3rem)',
+          marginBottom: 'var(--kb, 0px)',
         }}
       >
         <div className="sticky top-0 z-10 flex items-center gap-2 bg-raised px-4 pt-3 pb-2">

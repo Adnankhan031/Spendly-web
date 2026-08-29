@@ -3,7 +3,6 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { CalendarDays, ChartNoAxesCombined, MessageSquareText, PieChart, Settings } from 'lucide-react';
-import { useKeyboardInset } from '@/lib/useViewport';
 import { cx } from './ui';
 
 const TABS = [
@@ -16,19 +15,8 @@ const TABS = [
 
 export function TabBar() {
   const path = usePathname();
-  // With the keyboard up there is no room for the bar, and on iOS it would be
-  // drawn over the keyboard rather than under it. Slide it away instead.
-  const keyboard = useKeyboardInset();
-  const hidden = keyboard > 0;
   return (
-    <nav
-      aria-hidden={hidden}
-      className={cx(
-        'safe-b fixed inset-x-0 bottom-0 z-40 border-t border-line bg-surface/90 backdrop-blur-xl',
-        'transition-transform duration-200 ease-out',
-        hidden && 'pointer-events-none translate-y-full'
-      )}
-    >
+    <nav className="tabbar safe-b fixed inset-x-0 bottom-0 z-40 border-t border-line bg-surface/90 backdrop-blur-xl">
       <div className="mx-auto flex max-w-2xl">
         {TABS.map(({ href, label, Icon }) => {
           const active = path === href || path.startsWith(href + '/');

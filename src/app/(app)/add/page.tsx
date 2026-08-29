@@ -11,14 +11,16 @@ import { CategoryIcon, IconTile } from '@/lib/icons';
 import { ArrowUp, LayoutGrid, MessageSquareText, Plus, Trash2, X } from 'lucide-react';
 import { Chip, EmptyState, Spinner, cx } from '@/components/ui';
 import { dayLabel, shortDayLabel, todayLocal } from '@/lib/format';
-import { useKeyboardInset } from '@/lib/useViewport';
+import { useKeyboardOpen } from '@/lib/useViewport';
+import { cycleEndFor, cycleLabel, cycleStartFor } from '@/lib/cycle';
 import type { ChatMessage, TxnView } from '@/lib/types';
 
 
 
 export default function AddPage() {
   const store = useStore();
-  const { categories, aliasMap, pinnedDate, setPinnedDate, txns, user, fmt, refresh, loading } = store;
+  const { categories, aliasMap, pinnedDate, setPinnedDate, txns, user, fmt, refresh, loading, cycleStartDay } =
+    store;
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
@@ -29,14 +31,9 @@ export default function AddPage() {
   const [showPicker, setShowPicker] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
-  const keyboard = useKeyboardInset();
-
-  /**
-   * Where the composer sits. With no keyboard it clears the tab bar; with the
-   * keyboard up the tab bar has slid away, so it sits directly on top of the
-   * keyboard instead of being buried underneath it.
-   */
-  const dockBottom = keyboard > 0 ? `${keyboard}px` : 'calc(72px + env(safe-area-inset-bottom, 0px))';
+  // Only whether it is open — the height itself lives in CSS as --dock, so the
+  // composer follows the keyboard without React re-rendering as it animates.
+  const keyboardOpen = useKeyboardOpen();
 
   useEffect(() => {
     void q.fetchMessages().then(setMessages).catch(() => {});
@@ -46,15 +43,20 @@ export default function AddPage() {
     endRef.current?.scrollIntoView({ block: 'end' });
   }, [messages.length]);
 
-  // Opening the keyboard shrinks the visible area without changing the content
-  // height, so the newest message would sit behind it. Re-pin to the bottom.
+  /**
+   * Re-pin to the newest message once, when the keyboard opens.
+   *
+   * This deliberately depends on the open/closed boolean and not on the
+   * keyboard's height: scrolling moves the visual viewport, so a height-driven
+   * effect re-triggered its own scroll and the thread juddered up and down.
+   * `behavior: 'auto'` for the same reason — a smooth scroll spends 300ms
+   * firing viewport events.
+   */
   useEffect(() => {
-    if (keyboard === 0) return;
-    const id = requestAnimationFrame(() =>
-      endRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' })
-    );
+    if (!keyboardOpen) return;
+    const id = requestAnimationFrame(() => endRef.current?.scrollIntoView({ block: 'end' }));
     return () => cancelAnimationFrame(id);
-  }, [keyboard]);
+  }, [keyboardOpen]);
 
   const txnById = useMemo(() => new Map(txns.map((t) => [t.id, t])), [txns]);
   const today = todayLocal();
@@ -63,7 +65,27 @@ export default function AddPage() {
     0
   );
   const pinnedIsToday = pinnedDate === today;
-  const todayCount = txns.filter((t) => t.local_date === today).length;
+
+  /**
+   * The header follows the day you are writing to, not the calendar.
+   *
+   * It used to always read "Spent today", which sits at zero the entire time
+   * you are backfilling last week — a number that is both correct and useless.
+   * The cycle total underneath is the one that actually answers "can I afford
+   * this", so it is always present.
+   */
+  const pinnedTotal = txns.reduce(
+    (a, t) => (t.local_date === pinnedDate && t.type === 'expense' ? a + t.amount_minor : a),
+    0
+  );
+  const pinnedCount = txns.filter((t) => t.local_date === pinnedDate).length;
+  const cycleFrom = cycleStartFor(today, cycleStartDay);
+  const cycleTo = cycleEndFor(cycleFrom, cycleStartDay);
+  const cycleTotal = txns.reduce(
+    (a, t) =>
+      t.type === 'expense' && t.local_date >= cycleFrom && t.local_date <= cycleTo ? a + t.amount_minor : a,
+    0
+  );
 
 
   const send = useCallback(async () => {
@@ -153,35 +175,52 @@ export default function AddPage() {
     <div className="flex min-h-[calc(100dvh-72px)] flex-col">
       {/* header */}
       <header className="sticky top-0 z-20 bg-bg/95 px-4 pt-3 pb-2 backdrop-blur-lg">
-        <div className="flex items-stretch overflow-hidden rounded-2xl border border-line bg-surface">
-          {/* the highlight is a rail and the number, not a slab of colour */}
-          <span className="w-[3px] shrink-0 bg-brand" />
-          <div className="min-w-0 flex-1 py-3 pl-3.5 pr-3">
-            <p className="text-[11.5px] font-semibold text-dim">
-              Spent today
-              {todayCount > 0 && <span className="text-faint"> · {todayCount} {todayCount === 1 ? 'entry' : 'entries'}</span>}
-            </p>
-            <p className="tabular mt-0.5 text-[28px] font-extrabold leading-none">{fmt(todayTotal)}</p>
-          </div>
-          <div className="flex shrink-0 items-center gap-1 pr-2.5">
-            {messages.length > 0 && (
+        <div className="relative overflow-hidden rounded-2xl border border-line bg-surface">
+          {/* a wash of the accent, so the block reads as the app's own colour
+              without becoming a solid slab the eye cannot get past */}
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-0 opacity-[0.13]"
+            style={{ background: 'radial-gradient(120% 140% at 0% 0%, var(--color-brand), transparent 62%)' }}
+          />
+
+          <div className="relative flex items-start gap-3 px-3.5 py-3">
+            <div className="min-w-0 flex-1">
+              <p className="text-[11px] font-bold uppercase tracking-[0.09em] text-dim">
+                {pinnedIsToday ? 'Spent today' : `Spent on ${shortDayLabel(pinnedDate)}`}
+              </p>
+              <p className="tabular mt-1 text-[30px] font-extrabold leading-none">{fmt(pinnedTotal)}</p>
+              <p className="mt-1.5 text-[11.5px] text-faint">
+                {pinnedCount} {pinnedCount === 1 ? 'entry' : 'entries'}
+              </p>
+            </div>
+
+            <div className="flex shrink-0 items-center gap-1">
+              {messages.length > 0 && (
+                <button
+                  type="button"
+                  onClick={clearThread}
+                  aria-label="Clear thread"
+                  className="grid size-9 place-items-center rounded-xl text-faint transition active:scale-90"
+                >
+                  <Trash2 size={16} />
+                </button>
+              )}
               <button
                 type="button"
-                onClick={clearThread}
-                aria-label="Clear thread"
-                className="p-2 text-faint transition active:scale-90"
+                onClick={() => setCreating(true)}
+                aria-label="Add manually"
+                className="grid size-9 place-items-center rounded-xl bg-brand text-on-brand transition active:scale-90"
               >
-                <Trash2 size={16} />
+                <Plus size={18} />
               </button>
-            )}
-            <button
-              type="button"
-              onClick={() => setCreating(true)}
-              aria-label="Add manually"
-              className="grid size-[34px] place-items-center rounded-xl bg-brand-soft text-brand transition active:scale-90"
-            >
-              <Plus size={18} />
-            </button>
+            </div>
+          </div>
+
+          {/* the number that actually answers "can I afford this" */}
+          <div className="relative flex items-center gap-2 border-t border-line px-3.5 py-2">
+            <span className="text-[11.5px] text-dim">{cycleLabel(cycleFrom, cycleStartDay)}</span>
+            <span className="tabular ml-auto text-[13px] font-bold">{fmt(cycleTotal)}</span>
           </div>
         </div>
 
@@ -365,7 +404,7 @@ export default function AddPage() {
       {showPicker && (
         <div
           className="fixed inset-x-0 z-20 border-t border-line bg-surface"
-          style={{ bottom: `calc(${dockBottom} + 61px)` }}
+          style={{ bottom: 'calc(var(--dock) + 61px)' }}
         >
           <div className="no-scrollbar mx-auto flex max-w-2xl gap-2 overflow-x-auto px-3 py-2.5">
             {categories
@@ -394,8 +433,8 @@ export default function AddPage() {
 
       {/* composer */}
       <div
-        className="fixed inset-x-0 z-30 border-t border-line bg-surface px-3 py-2.5 transition-[bottom] duration-150 ease-out"
-        style={{ bottom: dockBottom }}
+        className="fixed inset-x-0 z-30 border-t border-line bg-surface px-3 py-2.5"
+        style={{ bottom: 'var(--dock)' }}
       >
         <div className="mx-auto flex max-w-2xl items-end gap-2">
           <button
