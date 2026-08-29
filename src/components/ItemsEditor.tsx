@@ -23,6 +23,13 @@ type Row = {
   auto: boolean;
 };
 
+/** Digits, one dot, and a leading minus for discount lines. */
+function cleanAmount(v: string): string {
+  const negative = v.trim().startsWith('-');
+  const digits = v.replace(/[^0-9.]/g, '');
+  return negative ? `-${digits}` : digits;
+}
+
 let seq = 0;
 const newRow = (): Row => ({ uid: `r${seq++}`, name: '', amount: '', categoryId: null, pinned: false, auto: false });
 
@@ -159,7 +166,10 @@ export function ItemsEditor({
 
   const itemTotal = rows.reduce((a, r) => a + toMinor(Number(r.amount || '0')), 0);
   const gap = (txn?.amount_minor ?? 0) - itemTotal;
-  const filled = rows.filter((r) => r.name.trim() && Number(r.amount) > 0);
+  // Non-zero, not positive: a 値引 discount is a real line with a negative
+  // amount. Requiring > 0 displayed it and then dropped it on save, which is
+  // the worst of both — the basket looked itemised and silently was not.
+  const filled = rows.filter((r) => r.name.trim() && Number(r.amount) !== 0);
 
   const save = async () => {
     if (!txn) return;
@@ -247,7 +257,7 @@ export function ItemsEditor({
                         onChange={(e) =>
                           setRows((rs) =>
                             rs.map((x) =>
-                              x.uid === r.uid ? { ...x, amount: e.target.value.replace(/[^0-9.]/g, '') } : x
+                              x.uid === r.uid ? { ...x, amount: cleanAmount(e.target.value) } : x
                             )
                           )
                         }
