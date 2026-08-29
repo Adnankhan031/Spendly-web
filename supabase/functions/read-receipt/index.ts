@@ -25,6 +25,31 @@ const MODELS = [
   'minimax/minimax-m3:free',
 ];
 
+/**
+ * Translation is a different job from reading a photo, so it gets its own
+ * order. The first is a mixture-of-experts with 3.8B active parameters: small
+ * model speed, Google's multilingual training. Short product names do not need
+ * a large model, and waiting is worse than a slightly plainer wording.
+ */
+const TRANSLATE_MODELS = [
+  'google/gemma-4-26b-a4b-it:free',
+  'google/gemma-4-31b-it:free',
+  'minimax/minimax-m3:free',
+];
+
+const TRANSLATE_SYSTEM = `You translate Japanese supermarket product names into English.
+
+- Reply with a JSON array of strings, the same length and order as the input.
+- Keep it short: what the thing IS, as a shopper would say it.
+  "日清あっさりシーフード" -> "Nissin Assari Seafood Noodles"
+  "丸大豆せんべい醤油" -> "Soy Sauce Rice Crackers"
+  "芋羊羹カステラ" -> "Sweet Potato Yokan Castella"
+- Keep brand names in romaji. Do not add commentary, sizes you cannot see, or
+  explanations.
+- OCR is imperfect: if a name is garbled, translate what it most likely says.
+  If it is unreadable, return the original string unchanged.
+- No markdown, no code fences, just the array.`;
+
 const SYSTEM = `You read supermarket and convenience-store receipts, including Japanese ones.
 
 Return every purchased line item with its price. Rules:
@@ -160,6 +185,51 @@ async function callModel(model: string, key: string, dataUrl: string): Promise<P
   return parsed;
 }
 
+/** Translate a batch of names, preserving order and length. */
+async function translate(model: string, key: string, names: string[]): Promise<string[] | null> {
+  const res = await fetch(OPENROUTER, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', 'X-Title': 'Spendly' },
+    body: JSON.stringify({
+      model,
+      messages: [
+        { role: 'system', content: TRANSLATE_SYSTEM },
+        { role: 'user', content: JSON.stringify(names) },
+      ],
+      max_tokens: 2000,
+      temperature: 0,
+    }),
+  });
+
+  if (res.status === 429) throw new RateLimited(model, res.headers.get('retry-after'));
+  if (!res.ok) {
+    console.error(`${model} translate -> ${res.status}`);
+    return null;
+  }
+
+  const body = await res.json();
+  const content = body?.choices?.[0]?.message?.content;
+  if (typeof content !== 'string') return null;
+
+  const fenced = content.match(/```(?:json)?\s*([\s\S]*?)```/);
+  const text = fenced ? fenced[1] : content;
+  const start = text.indexOf('[');
+  const end = text.lastIndexOf(']');
+  if (start < 0 || end <= start) return null;
+
+  try {
+    const arr = JSON.parse(text.slice(start, end + 1));
+    if (!Array.isArray(arr)) return null;
+    // Pad or trim, so the caller can always zip it back against the input.
+    return names.map((original, i) => {
+      const t = arr[i];
+      return typeof t === 'string' && t.trim() ? t.trim() : original;
+    });
+  } catch {
+    return null;
+  }
+}
+
 Deno.serve(async (req: Request) => {
   const origin = req.headers.get('origin');
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors(origin) });
@@ -174,10 +244,28 @@ Deno.serve(async (req: Request) => {
   if (!key) return json({ error: 'OPENROUTER_API_KEY is not set on this project.' }, 500);
 
   let image: string | undefined;
+  let names: unknown;
   try {
-    ({ image } = await req.json());
+    ({ image, names } = await req.json());
   } catch {
-    return json({ error: 'Send { image: "data:image/jpeg;base64,..." }' }, 400);
+    return json({ error: 'Send { image: "data:image/jpeg;base64,..." } or { names: [...] }' }, 400);
+  }
+
+  // Translation mode: one request for a whole receipt, never one per item.
+  if (Array.isArray(names)) {
+    const list = names.filter((n): n is string => typeof n === 'string' && n.trim().length > 0).slice(0, 120);
+    if (!list.length) return json({ translations: [] });
+
+    for (const model of TRANSLATE_MODELS) {
+      try {
+        const out = await translate(model, key, list);
+        if (out) return json({ translations: out, model });
+      } catch (e) {
+        if (e instanceof RateLimited) continue;
+        console.error(`${model} translate threw`, e);
+      }
+    }
+    return json({ error: 'Could not translate right now.', translations: null }, 502);
   }
   if (typeof image !== 'string' || !image.startsWith('data:image/')) {
     return json({ error: 'image must be a data URL' }, 400);
