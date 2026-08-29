@@ -3,9 +3,12 @@
 import { supabaseBrowser } from './supabase/client';
 import { SEED_ACCOUNTS, SEED_CATEGORIES } from './seed';
 import { ICON_MAP, resolveIconName } from './icons';
+import { foldJa } from './jp';
+import { SUB_CATEGORIES } from './items';
 import type {
   Account,
   Alias,
+  TxnItem,
   Budget,
   Category,
   ChatMessage,
@@ -65,10 +68,125 @@ export async function ensureSeeded(userId: string) {
 /* reads                                                               */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Spending categories — the ones a whole transaction can belong to.
+ *
+ * Subcategories live in the same table so they inherit sync and the icon
+ * editor, but they are filtered out here because every picker in the app reads
+ * this function and a receipt line is not something you file a transaction as.
+ */
 export async function fetchCategories(): Promise<Category[]> {
-  const { data, error } = await db().from('categories').select('*').order('sort');
+  const { data, error } = await db().from('categories').select('*').is('parent_key', null).order('sort');
   if (error) throw error;
   return (data ?? []) as Category[];
+}
+
+/** Receipt-line subcategories, optionally just those under one parent. */
+export async function fetchSubCategories(parentKey?: string): Promise<Category[]> {
+  let q = db().from('categories').select('*').not('parent_key', 'is', null);
+  if (parentKey) q = q.eq('parent_key', parentKey);
+  const { data, error } = await q.order('sort');
+  if (error) throw error;
+  return (data ?? []) as Category[];
+}
+
+/**
+ * Insert any shipped subcategory this account does not have yet.
+ *
+ * Same contract as syncSeedCategories: matched on key, keywords merged rather
+ * than overwritten, and name/colour/icon left alone once they exist so a rename
+ * survives an update.
+ */
+export async function syncSeedSubCategories(userId: string): Promise<void> {
+  const have = await fetchSubCategories();
+  const byKey = new Map(have.map((c) => [c.key, c]));
+
+  const missing = SUB_CATEGORIES.filter((s) => !byKey.has(s.key));
+  if (missing.length) {
+    const base = have.length + 100; // sort after the top-level catalogue
+    const { error } = await db()
+      .from('categories')
+      .insert(
+        missing.map((s, i) => ({
+          user_id: userId,
+          key: s.key,
+          name: s.name,
+          icon: s.icon,
+          color: s.color,
+          kind: 'expense',
+          keywords: s.keywords.join('|'),
+          parent_key: s.parent,
+          sort: base + i,
+        }))
+      );
+    if (error) throw error;
+  }
+
+  const updates = SUB_CATEGORIES.map((seed) => {
+    const row = byKey.get(seed.key);
+    if (!row) return null;
+    const current = row.keywords.split('|').filter(Boolean);
+    const merged = new Set([...current, ...seed.keywords]);
+    const next = [...merged].join('|');
+    return next === row.keywords ? null : { id: row.id, keywords: next };
+  }).filter(Boolean) as { id: string; keywords: string }[];
+
+  await Promise.all(
+    updates.map((u) => db().from('categories').update({ keywords: u.keywords }).eq('id', u.id))
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* receipt line items                                                  */
+/* ------------------------------------------------------------------ */
+
+export async function fetchItems(transactionId: string): Promise<TxnItem[]> {
+  const { data, error } = await db()
+    .from('transaction_items')
+    .select('*')
+    .eq('transaction_id', transactionId)
+    .is('deleted_at', null)
+    .order('sort');
+  if (error) throw error;
+  return (data ?? []) as TxnItem[];
+}
+
+/**
+ * Replace a transaction's items wholesale.
+ *
+ * Editing a receipt reorders, merges and deletes lines at once, so diffing them
+ * individually buys nothing. Existing rows are tombstoned rather than deleted
+ * so the removal still reaches the phone.
+ */
+export async function replaceItems(
+  userId: string,
+  transactionId: string,
+  items: { name: string; amount_minor: number; qty?: number; category_id?: string | null; confidence?: number }[]
+) {
+  const now = new Date().toISOString();
+  await db()
+    .from('transaction_items')
+    .update({ deleted_at: now })
+    .eq('transaction_id', transactionId)
+    .is('deleted_at', null);
+
+  if (!items.length) return;
+  const { error } = await db()
+    .from('transaction_items')
+    .insert(
+      items.map((it, i) => ({
+        user_id: userId,
+        transaction_id: transactionId,
+        name: it.name,
+        normalised: foldJa(it.name),
+        qty: it.qty ?? 1,
+        amount_minor: it.amount_minor,
+        category_id: it.category_id ?? null,
+        confidence: it.confidence ?? 1,
+        sort: i,
+      }))
+    );
+  if (error) throw error;
 }
 
 export async function fetchAccounts(): Promise<Account[]> {

@@ -12,6 +12,7 @@ const categories: Category[] = SEED_CATEGORIES.map((c, i) => ({
   id: `uuid-${c.id}`,
   user_id: 'u',
   key: c.id,
+  parent_key: null,
   name: c.name,
   icon: c.icon,
   color: c.color,

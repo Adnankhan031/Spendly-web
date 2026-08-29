@@ -61,6 +61,7 @@ export function StoreProvider({ user, children }: { user: User; children: React.
         cats = await q.fetchCategories();
         cats = await q.migrateCategoryIcons(cats);
         cats = await q.syncSeedCategories(user.id, cats);
+        await q.syncSeedSubCategories(user.id);
         migrated.current = true;
       } else {
         cats = await q.fetchCategories();

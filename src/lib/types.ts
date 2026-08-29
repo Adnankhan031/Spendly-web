@@ -13,6 +13,28 @@ export type Category = {
   keywords: string;
   sort: number;
   archived: boolean;
+  /** Set when this is a receipt-line subcategory, naming its parent's key. */
+  parent_key: string | null;
+};
+
+/** One line of a receipt, under the transaction that paid for it. */
+export type TxnItem = {
+  id: string;
+  user_id: string;
+  transaction_id: string;
+  /** As printed on the receipt, untouched. */
+  name: string;
+  /** `foldJa(name)`, so learning does not depend on script. */
+  normalised: string;
+  qty: number;
+  amount_minor: number;
+  /** A categories row — either a subcategory or a top-level one. */
+  category_id: string | null;
+  confidence: number;
+  sort: number;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
 };
 
 export type Account = {

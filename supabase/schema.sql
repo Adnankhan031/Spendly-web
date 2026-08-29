@@ -151,12 +151,41 @@ alter table public.aliases      enable row level security;
 alter table public.budgets      enable row level security;
 alter table public.messages     enable row level security;
 alter table public.settings     enable row level security;
+-- --------------------------------------------------- transaction items
+-- One line of a receipt. The transaction keeps the total; these are the
+-- breakdown, so budgets and cycle totals are untouched by itemising.
+-- category_id points at any categories row, which may be a subcategory.
+create table if not exists public.transaction_items (
+  id              uuid primary key default gen_random_uuid(),
+  user_id         uuid not null references auth.users(id) on delete cascade,
+  transaction_id  uuid not null references public.transactions(id) on delete cascade,
+  name            text not null,
+  normalised      text not null default '',
+  qty             numeric not null default 1,
+  amount_minor    bigint not null,
+  category_id     uuid references public.categories(id) on delete set null,
+  confidence      real not null default 1,
+  sort            int not null default 0,
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now(),
+  deleted_at      timestamptz
+);
+
+create index if not exists idx_item_txn     on public.transaction_items (transaction_id);
+create index if not exists idx_item_updated on public.transaction_items (user_id, updated_at);
+
+-- Subcategories are categories rows with a parent; clients filter on this.
+alter table public.categories   add column if not exists parent_key text;
+-- The shop a receipt came from, read off the bill.
+alter table public.transactions add column if not exists merchant text;
+
 alter table public.commitments  enable row level security;
+alter table public.transaction_items enable row level security;
 
 do $$
 declare t text;
 begin
-  foreach t in array array['categories','accounts','transactions','aliases','budgets','messages','settings','commitments']
+  foreach t in array array['categories','accounts','transactions','aliases','budgets','messages','settings','commitments','transaction_items']
   loop
     execute format('drop policy if exists "own rows select" on public.%I', t);
     execute format('drop policy if exists "own rows insert" on public.%I', t);
@@ -192,4 +221,8 @@ create trigger trg_commit_touch before update on public.commitments
 
 drop trigger if exists trg_cat_touch on public.categories;
 create trigger trg_cat_touch before update on public.categories
+  for each row execute function public.touch_updated_at();
+
+drop trigger if exists trg_item_touch on public.transaction_items;
+create trigger trg_item_touch before update on public.transaction_items
   for each row execute function public.touch_updated_at();
