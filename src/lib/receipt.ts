@@ -39,34 +39,47 @@ export async function compressImage(file: File, maxEdge = 1600, quality = 0.75):
 /**
  * Send a receipt photo to the Edge Function and get its lines back.
  *
- * The function holds the OpenRouter key, so nothing secret is in this bundle,
- * and the model can change server-side without shipping a new version.
+ * Deliberately plain fetch rather than `functions.invoke`. The client wraps any
+ * non-2xx as "Edge Function returned a non-2xx status code" and throws the body
+ * away, so a spent quota, an oversized image and an unreadable photo all looked
+ * identical and none of them told you what to do. The function already returns
+ * a precise reason; this keeps it.
  */
 export async function readReceipt(dataUrl: string): Promise<ScannedReceipt> {
-  const { data, error } = await supabaseBrowser().functions.invoke('read-receipt', {
-    body: { image: dataUrl },
-  });
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!url || !key) throw new Error('Supabase is not configured for this deployment.');
 
-  if (error) {
-    // The function's own error body is more useful than "non-2xx status".
-    const detail = await extractMessage(error);
-    throw new Error(detail ?? 'Could not reach the receipt reader.');
+  const { data } = await supabaseBrowser().auth.getSession();
+  const token = data.session?.access_token ?? key;
+
+  let res: Response;
+  try {
+    res = await fetch(`${url}/functions/v1/read-receipt`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, apikey: key, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image: dataUrl }),
+    });
+  } catch {
+    throw new Error('No connection. The receipt reader needs the internet.');
   }
-  if (!data || typeof data !== 'object') throw new Error('The receipt reader returned nothing.');
-  if ('error' in data) throw new Error(String((data as { error: string }).error));
 
-  return data as ScannedReceipt;
-}
-
-async function extractMessage(error: unknown): Promise<string | null> {
-  const ctx = (error as { context?: unknown })?.context;
-  if (ctx instanceof Response) {
-    try {
-      const body = await ctx.json();
-      if (body?.error) return String(body.error);
-    } catch {
-      /* fall through to the generic message */
-    }
+  const body = await res.text();
+  let parsed: (ScannedReceipt & { error?: string }) | null = null;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    /* not JSON — fall through to the status-based message */
   }
-  return error instanceof Error ? error.message : null;
+
+  if (!res.ok) {
+    if (parsed?.error) throw new Error(parsed.error);
+    if (res.status === 404) throw new Error('The read-receipt function is not deployed on this project.');
+    if (res.status === 401 || res.status === 403) throw new Error('Sign in again — the session was rejected.');
+    throw new Error(`The receipt reader failed (${res.status}). ${body.slice(0, 140)}`);
+  }
+
+  if (!parsed) throw new Error('The receipt reader returned something unreadable.');
+  if (parsed.error) throw new Error(parsed.error);
+  return parsed;
 }
