@@ -121,6 +121,14 @@ function extractJson(text: string): Parsed | null {
   }
 }
 
+/**
+ * OpenRouter's free tier is capped per ACCOUNT, not per model: 20 requests a
+ * minute and 50 a day, shared across every :free model. Falling through to the
+ * next model after a 429 therefore cannot succeed — it just spends another
+ * request from the same exhausted budget. Four models tried meant one scan
+ * costing four of the fifty.
+ */
+
 /** Thrown so a spent quota is reported as such, not as an unreadable receipt. */
 class RateLimited extends Error {
   constructor(public model: string, public retryAfter: string | null) {
@@ -261,7 +269,10 @@ Deno.serve(async (req: Request) => {
         const out = await translate(model, key, list);
         if (out) return json({ translations: out, model });
       } catch (e) {
-        if (e instanceof RateLimited) continue;
+        // The cap is shared, so another model would only burn one more request.
+        if (e instanceof RateLimited) {
+          return json({ error: 'Daily free limit reached.', rateLimited: true, translations: null }, 429);
+        }
         console.error(`${model} translate threw`, e);
       }
     }
@@ -284,15 +295,18 @@ Deno.serve(async (req: Request) => {
       if (parsed && parsed.items.length > 0) return json({ ...parsed, model, tried });
     } catch (e) {
       if (e instanceof RateLimited) {
+        // Stop here. The cap is per account, so every remaining model would
+        // return 429 too, each one costing another request from the same
+        // budget. One scan should never spend four of fifty.
         limited += 1;
         retryAfter = retryAfter ?? e.retryAfter;
-        continue;
+        break;
       }
       console.error(`${model} threw`, e);
     }
   }
 
-  if (limited === MODELS.length) {
+  if (limited > 0) {
     return json(
       {
         error:
@@ -303,10 +317,6 @@ Deno.serve(async (req: Request) => {
       },
       429
     );
-  }
-
-  if (limited > 0) {
-    return json({ error: `No model could read this receipt (${limited} were rate limited).`, tried }, 502);
   }
 
   return json({ error: 'No model could read this receipt.', tried }, 502);
