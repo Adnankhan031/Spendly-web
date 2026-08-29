@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "check:parser": "esbuild scripts/parser-check.ts --bundle --platform=node --format=cjs --outfile=node_modules/.cache/parser-check.cjs --log-level=error && node node_modules/.cache/parser-check.cjs",
-    "check": "tsc --noEmit && npm run check:parser"
+    "check": "tsc --noEmit && npm run check:parser && npm run check:items",
+    "check:items": "esbuild scripts/item-check.ts --bundle --platform=node --format=cjs --outfile=node_modules/.cache/item-check.cjs --log-level=error && node node_modules/.cache/item-check.cjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.5",
