@@ -16,6 +16,8 @@ type Store = {
   categories: Category[];
   accounts: Account[];
   txns: TxnView[];
+  /** Receipt-line subcategories. Kept apart from `categories` so pickers stay clean. */
+  subCategories: Category[];
   aliases: Alias[];
   aliasMap: Map<string, string>;
   budgets: Budget[];
@@ -39,6 +41,7 @@ export function StoreProvider({ user, children }: { user: User; children: React.
   const [error, setError] = useState<string | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [subCategories, setSubCategories] = useState<Category[]>([]);
   const [txns, setTxns] = useState<TxnView[]>([]);
   const [aliases, setAliases] = useState<Alias[]>([]);
   const [budgets, setBudgets] = useState<Budget[]>([]);
@@ -67,8 +70,9 @@ export function StoreProvider({ user, children }: { user: User; children: React.
         cats = await q.fetchCategories();
       }
 
-      const [accs, rows, als, buds, coms, settings] = await Promise.all([
+      const [accs, subs, rows, als, buds, coms, settings] = await Promise.all([
         q.fetchAccounts(),
+        q.fetchSubCategories(),
         q.fetchTxns(),
         q.fetchAliases(),
         q.fetchBudgets(),
@@ -77,6 +81,7 @@ export function StoreProvider({ user, children }: { user: User; children: React.
       ]);
       setCategories(cats);
       setAccounts(accs);
+      setSubCategories(subs);
       setTxns(q.withCategory(rows, cats));
       setAliases(als);
       setBudgets(buds);
@@ -151,6 +156,7 @@ export function StoreProvider({ user, children }: { user: User; children: React.
     categories,
     accounts,
     txns,
+    subCategories,
     aliases,
     aliasMap,
     budgets,

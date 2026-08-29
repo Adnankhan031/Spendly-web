@@ -1,14 +1,15 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { CalendarDays, Check, ChevronRight, Trash2 } from 'lucide-react';
+import { CalendarDays, Check, ChevronRight, ReceiptText, Trash2 } from 'lucide-react';
 import { Button, Chip, Sheet, cx, inputClass } from './ui';
 import { CategoryPicker, DatePicker } from './pickers';
+import { ItemsEditor } from './ItemsEditor';
 import { IconTile } from '@/lib/icons';
 import { useStore } from '@/lib/store';
 import * as q from '@/lib/queries';
 import { dayLabel, toMinor } from '@/lib/format';
-import type { NewTxn, TxnView } from '@/lib/types';
+import type { NewTxn, TxnItem, TxnView } from '@/lib/types';
 
 const METHODS = ['Cash', 'Card', 'UPI', 'Bank', 'Wallet'];
 
@@ -23,7 +24,7 @@ export function TxnEditor({
   seed?: Partial<NewTxn>;
   onClose: () => void;
 }) {
-  const { categories, accounts, currency, pinnedDate, user, refresh } = useStore();
+  const { categories, accounts, currency, pinnedDate, user, refresh, fmt } = useStore();
   const [amount, setAmount] = useState('');
   const [type, setType] = useState<'expense' | 'income'>('expense');
   const [categoryId, setCategoryId] = useState('');
@@ -34,6 +35,8 @@ export function TxnEditor({
   const [reimbursable, setReimbursable] = useState(false);
   const [showCat, setShowCat] = useState(false);
   const [showDate, setShowDate] = useState(false);
+  const [showItems, setShowItems] = useState(false);
+  const [items, setItems] = useState<TxnItem[]>([]);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -60,6 +63,21 @@ export function TxnEditor({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, txn?.id]);
+
+  // The breakdown is only a summary here; editing happens in its own sheet.
+  useEffect(() => {
+    if (!open || !txn) {
+      setItems([]);
+      return;
+    }
+    let live = true;
+    q.fetchItems(txn.id)
+      .then((rows) => live && setItems(rows))
+      .catch(() => live && setItems([]));
+    return () => {
+      live = false;
+    };
+  }, [open, txn, showItems]);
 
   const category = categories.find((c) => c.id === categoryId);
 
@@ -175,6 +193,29 @@ export function TxnEditor({
           </div>
         )}
 
+        {/* Itemising is only offered on a saved expense — there is no id to hang
+            the lines off until the transaction exists. */}
+        {txn && type === 'expense' && (
+          <button
+            type="button"
+            onClick={() => setShowItems(true)}
+            className="flex items-center gap-3 rounded-xl border border-line bg-sunken p-3.5 text-left transition active:scale-[0.99]"
+          >
+            <ReceiptText size={19} className="text-dim" />
+            <span className="min-w-0 flex-1">
+              <span className="block text-[15px] font-semibold">
+                {items.length ? `${items.length} ${items.length === 1 ? 'line' : 'lines'}` : 'Itemise this receipt'}
+              </span>
+              <span className="mt-0.5 block text-[11.5px] text-dim">
+                {items.length
+                  ? itemSummary(items, txn.amount_minor, fmt)
+                  : 'Break it into what you actually bought'}
+              </span>
+            </span>
+            <ChevronRight size={17} className="text-faint" />
+          </button>
+        )}
+
         <input
           value={note}
           onChange={(e) => setNote(e.target.value)}
@@ -227,6 +268,7 @@ export function TxnEditor({
           setShowCat(false);
         }}
       />
+      <ItemsEditor open={showItems} txn={txn ?? null} onClose={() => setShowItems(false)} />
       <DatePicker
         open={showDate}
         value={date}
@@ -238,4 +280,13 @@ export function TxnEditor({
       />
     </>
   );
+}
+
+/** One line describing how much of the receipt is accounted for. */
+function itemSummary(items: TxnItem[], total: number, fmt: (m: number) => string): string {
+  const sum = items.reduce((a, i) => a + i.amount_minor, 0);
+  const gap = total - sum;
+  if (gap === 0) return `${fmt(sum)} — balanced`;
+  if (gap > 0) return `${fmt(sum)} itemised, ${fmt(gap)} not accounted for`;
+  return `${fmt(sum)} — ${fmt(-gap)} over the total`;
 }
