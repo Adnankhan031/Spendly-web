@@ -73,6 +73,8 @@ type Parsed = {
   purchased_on: string | null;
   total: number | null;
   items: Item[];
+  /** Set when the reply was cut short and only complete items were recovered. */
+  truncated?: boolean;
 };
 
 const SCHEMA = {
@@ -107,18 +109,45 @@ function cors(origin: string | null) {
   };
 }
 
-/** Pull the first JSON object out of a reply, for models without strict mode. */
+/**
+ * Pull the receipt out of a reply, even a truncated one.
+ *
+ * A long receipt can exhaust the token budget mid-array. Discarding the whole
+ * response then loses forty items because the forty-first was cut in half, so
+ * a failed parse falls back to salvaging every complete item object.
+ */
 function extractJson(text: string): Parsed | null {
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
   const body = fenced ? fenced[1] : text;
   const start = body.indexOf('{');
+  if (start < 0) return null;
+
   const end = body.lastIndexOf('}');
-  if (start < 0 || end <= start) return null;
-  try {
-    return JSON.parse(body.slice(start, end + 1)) as Parsed;
-  } catch {
-    return null;
+  if (end > start) {
+    try {
+      return JSON.parse(body.slice(start, end + 1)) as Parsed;
+    } catch {
+      /* truncated — salvage below */
+    }
   }
+
+  const items: Item[] = [];
+  const objects = body.match(/\{[^{}]*"amount_minor"[^{}]*\}/g) ?? [];
+  for (const raw of objects) {
+    try {
+      const o = JSON.parse(raw);
+      if (typeof o?.name === 'string' && Number.isFinite(o?.amount_minor)) items.push(o);
+    } catch {
+      /* skip the half-written one */
+    }
+  }
+  if (!items.length) return null;
+
+  const merchant = body.match(/"merchant"\s*:\s*"([^"]*)"/)?.[1] ?? null;
+  const purchased_on = body.match(/"purchased_on"\s*:\s*"([^"]*)"/)?.[1] ?? null;
+  const total = Number(body.match(/"total"\s*:\s*(\d+)/)?.[1] ?? NaN);
+
+  return { merchant, purchased_on, total: Number.isFinite(total) ? total : null, items, truncated: true };
 }
 
 /**
@@ -160,7 +189,9 @@ async function callModel(model: string, key: string, dataUrl: string): Promise<P
         type: 'json_schema',
         json_schema: { name: 'receipt', strict: true, schema: SCHEMA },
       },
-      max_tokens: 4000,
+      // A 44-item Japanese receipt overran 4000 and came back as truncated
+      // JSON, which parsed as nothing and looked like the model had failed.
+      max_tokens: 16000,
       temperature: 0,
     }),
   });
@@ -180,6 +211,11 @@ async function callModel(model: string, key: string, dataUrl: string): Promise<P
   const json = await res.json();
   const content = json?.choices?.[0]?.message?.content;
   if (typeof content !== 'string') return null;
+
+  // Logged so an exhausted token budget is visible in the function logs rather
+  // than looking like the model simply could not read the photo.
+  const usage = json?.usage;
+  if (usage) console.log(`${model} usage in=${usage.prompt_tokens} out=${usage.completion_tokens}`);
 
   const parsed = extractJson(content);
   if (!parsed || !Array.isArray(parsed.items)) return null;
