@@ -7,6 +7,8 @@ import { SEED_CATEGORIES } from '../src/lib/seed';
 import { parseInput } from '../src/lib/parser';
 import { addDays, monthKey, todayLocal } from '../src/lib/format';
 import { runReceiptE2E } from './receipt-e2e';
+import { runReceiptTextChecks } from './receipt-text-check';
+import { runRealReceiptChecks } from './receipt-real-check';
 
 // Web category ids are uuids, so give each seed a fake one and keep `key` as the slug.
 const categories: Category[] = SEED_CATEGORIES.map((c, i) => ({
@@ -110,6 +112,10 @@ if (failures.length) {
   for (const f of failures) console.log('  ✗ ' + f);
   process.exit(1);
 }
+if (!runReceiptTextChecks() || !runRealReceiptChecks()) {
+  process.exit(1);
+}
+
 if (!runReceiptE2E()) {
   process.exit(1);
 }
