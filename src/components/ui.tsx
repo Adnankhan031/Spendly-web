@@ -1,5 +1,6 @@
 'use client';
 
+import { useKeyboardInset, useViewportHeight } from '@/lib/useViewport';
 import React from 'react';
 import { Loader2, X } from 'lucide-react';
 
@@ -263,6 +264,32 @@ export function Sheet({
 
   if (!open) return null;
   return (
+    <SheetShell onClose={onClose} title={title}>
+      {children}
+    </SheetShell>
+  );
+}
+
+/**
+ * Split out so the viewport hooks only run while a sheet is actually open.
+ */
+function SheetShell({
+  onClose,
+  title,
+  children,
+}: {
+  onClose: () => void;
+  title?: string;
+  children: React.ReactNode;
+}) {
+  const keyboard = useKeyboardInset();
+  const vh = useViewportHeight();
+  // iOS draws the keyboard over the page instead of shrinking it, so a sheet
+  // sized in dvh keeps its buttons underneath the keyboard. Size and lift it
+  // from the visual viewport instead.
+  const maxHeight = vh ? Math.round(vh * 0.9) : undefined;
+
+  return (
     <div className="fixed inset-0 z-50 flex flex-col justify-end sm:items-center sm:justify-center">
       <button
         type="button"
@@ -272,9 +299,14 @@ export function Sheet({
       />
       <div
         className={cx(
-          'sheet-in safe-b relative max-h-[88dvh] w-full overflow-y-auto border-line bg-raised shadow-[var(--shadow-pop)]',
-          'rounded-t-3xl border-t sm:max-w-md sm:rounded-3xl sm:border'
+          'sheet-in relative w-full overflow-y-auto overscroll-contain border-line bg-raised shadow-[var(--shadow-pop)]',
+          'rounded-t-3xl border-t sm:max-w-md sm:rounded-3xl sm:border',
+          keyboard === 0 && 'safe-b'
         )}
+        style={{
+          maxHeight: maxHeight ? `${maxHeight}px` : '88dvh',
+          marginBottom: keyboard > 0 ? keyboard : undefined,
+        }}
       >
         <div className="sticky top-0 z-10 flex items-center gap-2 bg-raised px-4 pt-3 pb-2">
           <div className="absolute inset-x-0 top-2 mx-auto h-1 w-10 rounded-full bg-line-strong sm:hidden" />

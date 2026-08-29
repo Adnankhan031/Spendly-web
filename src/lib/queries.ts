@@ -452,7 +452,8 @@ export async function unsettleReimbursement(id: string) {
  * keywords rather than overwrite, so vocabulary improvements land without
  * discarding anything the user added. Names, colours and icons stay theirs.
  */
-const PRUNED_FLAG = 'seedKeywordsPruned';
+const CATALOGUE_FLAG = 'catalogueVersion';
+const CATALOGUE_VERSION = '2';
 
 export async function syncSeedCategories(userId: string, cats: Category[]): Promise<Category[]> {
   const byKey = new Map(cats.map((c) => [c.key, c]));
@@ -465,7 +466,7 @@ export async function syncSeedCategories(userId: string, cats: Category[]): Prom
   // account, drop the words some *other* seed category now owns. Words the user
   // typed in the keyword editor belong to no seed list and are never touched.
   const settings = await fetchSettings();
-  const shouldPrune = settings[PRUNED_FLAG] !== '1';
+  const shouldPrune = settings[CATALOGUE_FLAG] !== CATALOGUE_VERSION;
   const claimedBy = new Map<string, Set<string>>();
   for (const seed of SEED_CATEGORIES) {
     for (const k of seed.keywords) {
@@ -487,10 +488,15 @@ export async function syncSeedCategories(userId: string, cats: Category[]): Prom
       : current;
     const merged = new Set([...kept, ...seed.keywords]);
     const next = [...merged].join('|');
-    return next === have.keywords ? null : { id: have.id, keywords: next };
-  }).filter(Boolean) as { id: string; keywords: string }[];
+    // The first palette was Material pastels with three near-identical greys,
+    // so a chart dominated by one of them read as colourless. Adopt the new
+    // palette in the same one-time pass.
+    const color = shouldPrune && have.color !== seed.color ? seed.color : null;
+    if (next === have.keywords && !color) return null;
+    return { id: have.id, keywords: next, ...(color ? { color } : {}) };
+  }).filter(Boolean) as { id: string; keywords: string; color?: string }[];
 
-  if (shouldPrune) await setSetting(userId, PRUNED_FLAG, '1');
+  if (shouldPrune) await setSetting(userId, CATALOGUE_FLAG, CATALOGUE_VERSION);
 
   if (!missing.length && !updates.length) return cats;
 
@@ -511,7 +517,14 @@ export async function syncSeedCategories(userId: string, cats: Category[]): Prom
         }))
       );
   }
-  await Promise.all(updates.map((u) => db().from('categories').update({ keywords: u.keywords }).eq('id', u.id)));
+  await Promise.all(
+    updates.map((u) =>
+      db()
+        .from('categories')
+        .update(u.color ? { keywords: u.keywords, color: u.color } : { keywords: u.keywords })
+        .eq('id', u.id)
+    )
+  );
 
   return fetchCategories();
 }
@@ -527,7 +540,7 @@ export function withCategory(txns: Txn[], categories: Category[]): TxnView[] {
     return {
       ...t,
       cat_name: c?.name ?? 'Uncategorised',
-      cat_icon: c?.icon ?? '📦',
+      cat_icon: c?.icon ?? 'package',
       cat_color: c?.color ?? '#90A4AE',
       cat_key: c?.key ?? 'other',
     };

@@ -8,6 +8,7 @@ import { CalendarRange, ChartNoAxesCombined } from 'lucide-react';
 import { cycleEndFor, cycleLabel, currentCycle } from '@/lib/cycle';
 import { Bars, Donut, GroupedBars, HBar, Legend, TrendLine } from '@/components/charts';
 import { Card, EmptyState, SectionTitle, Segmented, Spinner, cx, inputClass } from '@/components/ui';
+import { CategoryIcon, UiIcon } from '@/lib/icons';
 import { addDays, currentMonth, dayLabel, monthEnd, monthLabel, monthStart, shiftMonth, todayLocal } from '@/lib/format';
 
 type Period = 'month' | '3m' | '6m' | '12m' | 'all' | 'custom';
@@ -65,6 +66,43 @@ export default function AnalyticsPage() {
     () => new Map((prev?.byCategory ?? []).map((c) => [c.category_id, c.total])),
     [prev]
   );
+
+  /**
+   * Running total across the period.
+   *
+   * The daily bars answer "what did I spend on Tuesday"; this answers the
+   * question you actually ask mid-period — am I going faster than I can afford?
+   */
+  const pace = useMemo(() => {
+    const perDay = new Map<string, number>();
+    for (const t of txns) {
+      if (t.type !== 'expense') continue;
+      if (t.local_date < bounds.from || t.local_date > bounds.to) continue;
+      perDay.set(t.local_date, (perDay.get(t.local_date) ?? 0) + t.amount_minor);
+    }
+
+    const labels: string[] = [];
+    const cumulative: number[] = [];
+    let sum = 0;
+    let spentDays = 0;
+    for (let d = bounds.from; d <= bounds.to; d = addDays(d, 1)) {
+      const v = perDay.get(d) ?? 0;
+      if (v > 0) spentDays += 1;
+      sum += v;
+      labels.push(d.slice(8));
+      cumulative.push(sum);
+      if (labels.length > 400) break;
+    }
+
+    const today = todayLocal();
+    // Only count the days that have actually happened, or a mid-month period
+    // would look far cheaper per day than it is.
+    const elapsed = Math.max(1, labels.filter((_, i) => addDays(bounds.from, i) <= today).length);
+    const span = Math.max(1, labels.length);
+    const perDayAvg = sum / Math.min(elapsed, span);
+
+    return { labels, cumulative, total: sum, spentDays, projected: Math.round(perDayAvg * span), perDayAvg };
+  }, [txns, bounds]);
 
   if (loading) {
     return (
@@ -222,7 +260,12 @@ export default function AnalyticsPage() {
                 return (
                   <Link key={c.category_id} href={`/category/${c.category_id}`} className="block">
                     <div className="mb-1.5 flex items-center gap-2">
-                      <span className="text-sm">{c.icon}</span>
+                      <span
+                        className="grid size-6 shrink-0 place-items-center rounded-md"
+                        style={{ background: c.color + '24', color: c.color }}
+                      >
+                        <CategoryIcon name={c.icon} size={14} />
+                      </span>
                       <span className="min-w-0 flex-1 truncate text-[13.5px] font-semibold">{c.name}</span>
                       {delta !== null && Math.abs(delta) >= 5 && (
                         <span className={cx('text-[11px] font-bold', delta > 0 ? 'text-down' : 'text-brand')}>
@@ -242,6 +285,23 @@ export default function AnalyticsPage() {
             </div>
           </Card>
 
+          {pace.cumulative.length > 2 && pace.total > 0 && (
+            <>
+              <SectionTitle>Pace</SectionTitle>
+              <Card>
+                <div className="mb-1 flex items-baseline justify-between">
+                  <span className="text-[12px] text-dim">Spent so far</span>
+                  <span className="tabular text-[15px] font-bold">{fmt(pace.total)}</span>
+                </div>
+                <TrendLine values={pace.cumulative} labels={pace.labels} height={128} />
+                <p className="mt-2 text-[12px] leading-5 text-dim">
+                  Averaging {fmt(Math.round(pace.perDayAvg))} a day across {pace.spentDays} spending{' '}
+                  {pace.spentDays === 1 ? 'day' : 'days'} — about {fmt(pace.projected)} for the whole period.
+                </p>
+              </Card>
+            </>
+          )}
+
           <SectionTitle>Spending by weekday</SectionTitle>
           <Card>
             <Bars
@@ -250,7 +310,7 @@ export default function AnalyticsPage() {
             />
           </Card>
 
-          {stats.methods.length > 0 && (
+          {stats.methods.some((m) => m.method && m.method !== 'Unspecified') && (
             <>
               <SectionTitle>How you paid</SectionTitle>
               <Card>
@@ -275,7 +335,7 @@ export default function AnalyticsPage() {
             <div className="flex flex-col gap-3.5">
               {stats.biggestDay && (
                 <Record
-                  icon="🔥"
+                  icon="flame"
                   title="Heaviest day"
                   sub={dayLabel(stats.biggestDay.date)}
                   value={fmt(stats.biggestDay.total)}
@@ -283,14 +343,14 @@ export default function AnalyticsPage() {
               )}
               {stats.biggestTxn && (
                 <Record
-                  icon="💸"
+                  icon="trophy"
                   title="Biggest single expense"
                   sub={`${stats.biggestTxn.note} · ${dayLabel(stats.biggestTxn.date)}`}
                   value={fmt(stats.biggestTxn.amount)}
                 />
               )}
               <Record
-                icon="🧾"
+                icon="receipt"
                 title="Average entry"
                 sub={`${stats.count} entries logged`}
                 value={fmt(stats.count ? Math.round(stats.expense / stats.count) : 0)}
@@ -334,7 +394,9 @@ function BigStat({ label, value, tone }: { label: string; value: string; tone?: 
 function Record({ icon, title, sub, value }: { icon: string; title: string; sub: string; value: string }) {
   return (
     <div className="flex items-center gap-3">
-      <span className="text-lg">{icon}</span>
+      <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-brand-soft text-brand">
+        <UiIcon name={icon} size={17} />
+      </span>
       <span className="min-w-0 flex-1">
         <span className="block text-[13.5px] font-semibold">{title}</span>
         <span className="block truncate text-[11.5px] text-faint">{sub}</span>

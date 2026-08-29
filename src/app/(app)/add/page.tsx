@@ -11,6 +11,7 @@ import { CategoryIcon, IconTile } from '@/lib/icons';
 import { ArrowUp, LayoutGrid, MessageSquareText, Plus, Trash2, X } from 'lucide-react';
 import { Chip, EmptyState, Spinner, cx } from '@/components/ui';
 import { dayLabel, shortDayLabel, todayLocal } from '@/lib/format';
+import { useKeyboardInset } from '@/lib/useViewport';
 import type { ChatMessage, TxnView } from '@/lib/types';
 
 
@@ -28,6 +29,14 @@ export default function AddPage() {
   const [showPicker, setShowPicker] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
+  const keyboard = useKeyboardInset();
+
+  /**
+   * Where the composer sits. With no keyboard it clears the tab bar; with the
+   * keyboard up the tab bar has slid away, so it sits directly on top of the
+   * keyboard instead of being buried underneath it.
+   */
+  const dockBottom = keyboard > 0 ? `${keyboard}px` : 'calc(72px + env(safe-area-inset-bottom, 0px))';
 
   useEffect(() => {
     void q.fetchMessages().then(setMessages).catch(() => {});
@@ -36,6 +45,16 @@ export default function AddPage() {
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: 'end' });
   }, [messages.length]);
+
+  // Opening the keyboard shrinks the visible area without changing the content
+  // height, so the newest message would sit behind it. Re-pin to the bottom.
+  useEffect(() => {
+    if (keyboard === 0) return;
+    const id = requestAnimationFrame(() =>
+      endRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' })
+    );
+    return () => cancelAnimationFrame(id);
+  }, [keyboard]);
 
   const txnById = useMemo(() => new Map(txns.map((t) => [t.id, t])), [txns]);
   const today = todayLocal();
@@ -182,7 +201,7 @@ export default function AddPage() {
       </header>
 
       {/* thread */}
-      <div className="flex flex-1 flex-col gap-2 px-4 pb-4">
+      <div className="flex flex-1 flex-col gap-2 px-4 pb-4" style={{ paddingBottom: showPicker ? 150 : 76 }}>
         {loading && messages.length === 0 && (
           <div className="grid flex-1 place-items-center text-dim">
             <Spinner />
@@ -199,11 +218,45 @@ export default function AddPage() {
           </div>
         )}
 
-        {messages.map((m) => {
+        {messages.map((m, i) => {
+          /**
+           * A day divider whenever the calendar day changes.
+           *
+           * Without it a long thread is one unbroken column of identical
+           * bubbles with nothing to tell you where yesterday ended.
+           */
+          // created_at is UTC; slicing the string would put anything sent before
+          // 09:00 in Japan on the previous day. Convert to the local calendar day.
+          const dayOf = (msg: ChatMessage) => {
+            if (!msg.created_at) return '';
+            const d = new Date(msg.created_at);
+            if (Number.isNaN(d.getTime())) return '';
+            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
+              d.getDate()
+            ).padStart(2, '0')}`;
+          };
+          const divider =
+            i === 0 || dayOf(messages[i - 1]) !== dayOf(m) ? (
+              <div key={`d-${m.id}`} className="my-2 flex items-center gap-3 px-1">
+                <span className="h-px flex-1 bg-line" />
+                <span className="text-[10.5px] font-bold uppercase tracking-[0.09em] text-faint">
+                  {dayOf(m) ? dayLabel(dayOf(m)) : 'Earlier'}
+                </span>
+                <span className="h-px flex-1 bg-line" />
+              </div>
+            ) : null;
+
+          const wrap = (node: React.ReactNode) => (
+            <React.Fragment key={m.id}>
+              {divider}
+              {node}
+            </React.Fragment>
+          );
+
           if (m.role === 'user') {
-            return (
-              <div key={m.id} className="rise max-w-[84%] self-end">
-                <div className="rounded-2xl rounded-br-sm bg-brand px-3.5 py-2.5 text-[15px] font-semibold text-on-brand">
+            return wrap(
+              <div className="rise max-w-[84%] self-end">
+                <div className="rounded-2xl rounded-br-sm bg-brand px-3.5 py-2.5 text-[15px] font-semibold text-on-brand shadow-[0_1px_2px_rgba(0,0,0,0.18)]">
                   {m.text}
                 </div>
               </div>
@@ -212,9 +265,14 @@ export default function AddPage() {
 
           if (m.kind === 'txn') {
             const tx = m.txn_id ? txnById.get(m.txn_id) : undefined;
-            if (!tx) return null;
-            return (
-              <div key={m.id} className="rise w-[92%] self-start">
+            if (!tx)
+              return wrap(
+                <div className="rise max-w-[88%] self-start rounded-2xl rounded-bl-sm border border-dashed border-line px-3.5 py-2 text-[12.5px] text-faint">
+                  That entry was deleted.
+                </div>
+              );
+            return wrap(
+              <div className="rise w-[92%] self-start">
                 <div
                   className="rounded-2xl rounded-bl-sm border border-line bg-surface p-3"
                   style={{ borderLeft: `3px solid ${tx.cat_color}` }}
@@ -258,8 +316,8 @@ export default function AddPage() {
             const a = m.payload as Answer | null;
             if (!a) return null;
             const max = Math.max(1, ...a.bars.map((b) => b.value));
-            return (
-              <div key={m.id} className="rise w-[94%] self-start rounded-2xl rounded-bl-sm border border-line bg-surface p-3.5">
+            return wrap(
+              <div className="rise w-[94%] self-start rounded-2xl rounded-bl-sm border border-line bg-surface p-3.5">
                 <p className="text-[11.5px] font-bold uppercase tracking-wider text-dim">{a.headline}</p>
                 <p className="tabular mt-1 text-3xl font-extrabold">{a.value}</p>
                 <p className="mt-1 text-[13px] leading-5 text-dim">{a.detail}</p>
@@ -292,8 +350,8 @@ export default function AddPage() {
             );
           }
 
-          return (
-            <div key={m.id} className="rise max-w-[88%] self-start">
+          return wrap(
+            <div className="rise max-w-[88%] self-start">
               <div className="rounded-2xl rounded-bl-sm bg-sunken px-3.5 py-2.5 text-[13.5px] leading-5 text-dim">
                 {m.text}
               </div>
@@ -305,7 +363,10 @@ export default function AddPage() {
 
       {/* tap a category, then just type the amount */}
       {showPicker && (
-        <div className="sticky bottom-[calc(130px+env(safe-area-inset-bottom,0px))] z-20 border-t border-line bg-surface">
+        <div
+          className="fixed inset-x-0 z-20 border-t border-line bg-surface"
+          style={{ bottom: `calc(${dockBottom} + 61px)` }}
+        >
           <div className="no-scrollbar mx-auto flex max-w-2xl gap-2 overflow-x-auto px-3 py-2.5">
             {categories
               .filter((c) => c.kind === 'expense' && !c.archived)
@@ -332,7 +393,10 @@ export default function AddPage() {
       )}
 
       {/* composer */}
-      <div className="safe-b sticky bottom-[calc(72px+env(safe-area-inset-bottom,0px))] z-20 border-t border-line bg-surface px-3 py-2.5">
+      <div
+        className="fixed inset-x-0 z-30 border-t border-line bg-surface px-3 py-2.5 transition-[bottom] duration-150 ease-out"
+        style={{ bottom: dockBottom }}
+      >
         <div className="mx-auto flex max-w-2xl items-end gap-2">
           <button
             type="button"
@@ -356,6 +420,12 @@ export default function AddPage() {
               }
             }}
             rows={1}
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="none"
+            spellCheck={false}
+            enterKeyHint="send"
+            name="entry"
             placeholder={pinnedIsToday ? 'food 300' : `Adding to ${dayLabel(pinnedDate)}…`}
             className="max-h-28 flex-1 resize-none rounded-[20px] bg-sunken px-4 py-2.5 text-[15.5px] outline-none"
           />

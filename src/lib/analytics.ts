@@ -341,6 +341,7 @@ export function runQuery(spec: QuerySpec, txns: TxnView[], fmt: (m: number) => s
 /* insights                                                            */
 /* ------------------------------------------------------------------ */
 
+/** `icon` is a key into INSIGHT_ICONS (or a category icon name), never an emoji. */
 export type Insight = { icon: string; text: string; tone: 'good' | 'warn' | 'bad' | 'neutral' };
 
 export function buildInsights(stats: MonthStats, fmt: (m: number) => string): Insight[] {
@@ -351,7 +352,7 @@ export function buildInsights(stats: MonthStats, fmt: (m: number) => string): In
   if (stats.deltaPct !== null && Math.abs(stats.deltaPct) >= 8 && stats.prevExpense > 0) {
     const up = stats.deltaPct > 0;
     out.push({
-      icon: up ? '📈' : '📉',
+      icon: up ? 'trending-up' : 'trending-down',
       text: `You spent ${Math.abs(Math.round(stats.deltaPct))}% ${up ? 'more' : 'less'} than last period (${fmt(
         stats.prevExpense
       )}).`,
@@ -373,7 +374,7 @@ export function buildInsights(stats: MonthStats, fmt: (m: number) => string): In
   if (stats.budgetTotal > 0) {
     const usedPct = Math.round((stats.expense / stats.budgetTotal) * 100);
     out.push({
-      icon: usedPct >= 100 ? '🚨' : usedPct >= 80 ? '⚠️' : '✅',
+      icon: usedPct >= 100 ? 'siren' : usedPct >= 80 ? 'alert' : 'check',
       text:
         usedPct >= 100
           ? `You are ${fmt(stats.expense - stats.budgetTotal)} over your ${fmt(stats.budgetTotal)} budget.`
@@ -385,7 +386,7 @@ export function buildInsights(stats: MonthStats, fmt: (m: number) => string): In
   for (const c of stats.overBudget.slice(0, 2)) {
     const p = Math.round((c.used / c.limit) * 100);
     out.push({
-      icon: p >= 100 ? '🔴' : '🟠',
+      icon: p >= 100 ? 'siren' : 'alert',
       text: `${c.name} is at ${p}% of its ${fmt(c.limit)} budget.`,
       tone: p >= 100 ? 'bad' : 'warn',
     });
@@ -393,7 +394,7 @@ export function buildInsights(stats: MonthStats, fmt: (m: number) => string): In
 
   if (isCurrent && stats.expense > 0) {
     out.push({
-      icon: '🔮',
+      icon: 'telescope',
       text: `At ${fmt(Math.round(stats.avgPerDay))} a day you are on track for about ${fmt(stats.projected)} this period.`,
       tone: 'neutral',
     });
@@ -402,7 +403,7 @@ export function buildInsights(stats: MonthStats, fmt: (m: number) => string): In
   if (stats.income > 0) {
     const rate = Math.round(((stats.income - stats.expense) / stats.income) * 100);
     out.push({
-      icon: rate >= 0 ? '🏦' : '⚡',
+      icon: rate >= 0 ? 'piggy' : 'zap',
       text:
         rate >= 0
           ? `You kept ${rate}% of what you earned — ${fmt(stats.net)} saved.`
@@ -414,7 +415,7 @@ export function buildInsights(stats: MonthStats, fmt: (m: number) => string): In
   const zeroDays = stats.daily.filter((d) => d.value === 0).length;
   if (stats.count >= 5 && zeroDays > 0) {
     out.push({
-      icon: '🧘',
+      icon: 'leaf',
       text: `${zeroDays} no-spend day${zeroDays === 1 ? '' : 's'} this period.`,
       tone: 'good',
     });

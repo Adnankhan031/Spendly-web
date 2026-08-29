@@ -7,6 +7,7 @@ import {
   Music, Package, Phone, PiggyBank, Pill, Plane, Receipt, Repeat, Scissors, Shirt, ShoppingBag,
   ShoppingCart, Smartphone, Sparkles, Star, Stethoscope, Tag, TrainFront, TrendingUp, TriangleAlert,
   Tv, Undo2, Users, UtensilsCrossed, Wallet, Wifi, Wrench, Zap,
+  CalendarX2, Check, Flame as FlameIcon, Siren, Telescope, TrendingDown, Trophy,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -26,6 +27,46 @@ export const ICON_MAP: Record<string, LucideIcon> = {
 };
 
 export const ICON_CHOICES = Object.keys(ICON_MAP);
+
+/**
+ * Icons the interface uses to label its own things — insights, records, states.
+ *
+ * Kept apart from ICON_MAP so they never appear in the category icon picker,
+ * which is only meant to offer icons that make sense for a spending category.
+ */
+const UI_ICONS: Record<string, LucideIcon> = {
+  'trending-up': TrendingUp,
+  'trending-down': TrendingDown,
+  siren: Siren,
+  alert: TriangleAlert,
+  check: Check,
+  telescope: Telescope,
+  piggy: PiggyBank,
+  zap: Zap,
+  leaf: Leaf,
+  flame: FlameIcon,
+  trophy: Trophy,
+  receipt: Receipt,
+  note: Banknote,
+  'calendar-off': CalendarX2,
+};
+
+/**
+ * An icon named by either set. Insights carry a category icon when they are
+ * about a category and a UI icon otherwise, so both have to resolve.
+ */
+export function UiIcon({
+  name,
+  size = 17,
+  className,
+}: {
+  name: string | null | undefined;
+  size?: number;
+  className?: string;
+}) {
+  const Cmp = (name && (UI_ICONS[name] ?? ICON_MAP[name])) || Package;
+  return <Cmp size={size} className={className} strokeWidth={2.1} aria-hidden />;
+}
 
 /**
  * Rows created before the icon set existed hold an emoji. Map the ones we

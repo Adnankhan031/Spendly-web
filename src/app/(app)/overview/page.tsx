@@ -9,7 +9,7 @@ import * as q from '@/lib/queries';
 import { Bars, Donut, HBar, Ring } from '@/components/charts';
 import { CalendarX2, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Card, EmptyState, SectionTitle, Spinner, cx } from '@/components/ui';
-import { IconTile } from '@/lib/icons';
+import { CategoryIcon, IconTile, UiIcon } from '@/lib/icons';
 import { MonthPicker } from '@/components/pickers';
 import { TxnEditor } from '@/components/TxnEditor';
 import { addDays, currentMonth, dayLabel, monthLabel, shiftMonth, shortDayLabel, todayLocal } from '@/lib/format';
@@ -157,7 +157,12 @@ export default function OverviewPage() {
               {stats.byCategory.slice(0, 8).map((c) => (
                 <Link key={c.category_id} href={`/category/${c.category_id}?from=${from}&to=${to}`} className="block">
                   <div className="mb-1.5 flex items-center gap-2">
-                    <span className="text-sm">{c.icon}</span>
+                    <span
+                      className="grid size-6 shrink-0 place-items-center rounded-md"
+                      style={{ background: c.color + '24', color: c.color }}
+                    >
+                      <CategoryIcon name={c.icon} size={14} />
+                    </span>
                     <span className="min-w-0 flex-1 truncate text-[13.5px] font-semibold">{c.name}</span>
                     <span className="text-[11px] font-semibold text-faint">
                       {Math.round((c.total / stats.expense) * 100)}%
@@ -278,7 +283,20 @@ export default function OverviewPage() {
                       }`,
                     }}
                   >
-                    <span>{ins.icon}</span>
+                    <span
+                      className={cx(
+                        'mt-0.5 shrink-0',
+                        ins.tone === 'bad'
+                          ? 'text-down'
+                          : ins.tone === 'warn'
+                            ? 'text-warn'
+                            : ins.tone === 'good'
+                              ? 'text-brand'
+                              : 'text-faint'
+                      )}
+                    >
+                      <UiIcon name={ins.icon} size={16} />
+                    </span>
                     <p className="flex-1 text-[13.5px] leading-5 text-dim">{ins.text}</p>
                   </div>
                 ))}
