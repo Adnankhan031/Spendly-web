@@ -287,6 +287,20 @@ Deno.serve(async (req: Request) => {
   const key = Deno.env.get('OPENROUTER_API_KEY');
   if (!key) return json({ error: 'OPENROUTER_API_KEY is not set on this project.' }, 500);
 
+  /**
+   * An optional second key, used only for translation.
+   *
+   * Reading and translating then draw on separate accounts, so exhausting one
+   * does not stop the other. Worth knowing before relying on it: OpenRouter's
+   * documentation says "making additional accounts or API keys will not affect
+   * your rate limits, as we govern capacity globally", so this may well share
+   * the same daily pool. It costs nothing to have set up, and if the limits do
+   * turn out to be separate, translation stops competing with reading.
+   *
+   * Falls back to the main key when unset, so nothing breaks without it.
+   */
+  const translateKey = Deno.env.get('OPENROUTER_TRANSLATE_KEY') || key;
+
   let image: string | undefined;
   let names: unknown;
   try {
@@ -302,12 +316,32 @@ Deno.serve(async (req: Request) => {
 
     for (const model of TRANSLATE_MODELS) {
       try {
-        const out = await translate(model, key, list);
-        if (out) return json({ translations: out, model });
+        const out = await translate(model, translateKey, list);
+        if (out) {
+          return json({
+            translations: out,
+            model,
+            // Lets you confirm from the app which account answered.
+            key: translateKey === key ? 'shared' : 'translate',
+          });
+        }
       } catch (e) {
         // The cap is shared, so another model would only burn one more request.
         if (e instanceof RateLimited) {
-          return json({ error: 'Daily free limit reached.', rateLimited: true, translations: null }, 429);
+          // Naming which key ran out is the only way to tell whether a second
+          // account actually has its own allowance or shares the first's.
+          const separate = translateKey !== key;
+          return json(
+            {
+              error: separate
+                ? 'The translation account has reached its daily limit.'
+                : 'Daily free limit reached.',
+              rateLimited: true,
+              key: separate ? 'translate' : 'shared',
+              translations: null,
+            },
+            429
+          );
         }
         console.error(`${model} translate threw`, e);
       }
