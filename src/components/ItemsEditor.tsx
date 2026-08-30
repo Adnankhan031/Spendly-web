@@ -21,6 +21,8 @@ type Row = {
    *  never silently overwrites their decision. */
   pinned: boolean;
   auto: boolean;
+  /** As printed on the receipt, kept when `name` has been translated. */
+  original?: string;
 };
 
 /** Digits, one dot, and a leading minus for discount lines. */
@@ -52,18 +54,22 @@ export type ReceiptDraft = {
   merchant: string | null;
   date: string;
   total: number;
-  lines: { name: string; amount_minor: number }[];
+  /** `name` is what the receipt printed; `en` is its translation, when we have one. */
+  lines: { name: string; en?: string | null; amount_minor: number }[];
 };
 
 export function ItemsEditor({
   open,
   txn,
   draft,
+  note,
   onClose,
 }: {
   open: boolean;
   txn: TxnView | null;
   draft?: ReceiptDraft | null;
+  /** A message from the scan, e.g. why some lines are still Japanese. */
+  note?: string | null;
   onClose: () => void;
 }) {
   const { categories, subCategories, currency, fmt, user, refresh } = useStore();
@@ -103,7 +109,8 @@ export function ItemsEditor({
           const cat = key ? byKey.get(key) : undefined;
           return {
             uid: `d${seq++}`,
-            name: l.name,
+            name: l.en || l.name,
+            original: l.en ? l.name : undefined,
             amount: String(l.amount_minor / 100),
             categoryId: cat?.id ?? null,
             pinned: false,
@@ -140,7 +147,9 @@ export function ItemsEditor({
     setRows((rs) =>
       rs.map((r) => {
         if (r.uid !== uid || r.pinned || !r.name.trim()) return r;
-        const hit = classifyItem(r.name, ctx);
+        // The dictionary and the learned words are Japanese, so match on what
+        // the receipt said rather than on the English label.
+        const hit = classifyItem(r.original ?? r.name, ctx);
         const key = hit.subKey ?? hit.categoryKey;
         const cat = key ? byKey.get(key) : undefined;
         return cat ? { ...r, categoryId: cat.id, auto: true } : r;
@@ -325,6 +334,11 @@ export function ItemsEditor({
                 {scanError}
               </p>
             )}
+            {note && !scanNote && !scanError && (
+              <p className="rounded-xl border border-line bg-sunken px-3 py-2 text-[12.5px] text-dim">
+                {note}
+              </p>
+            )}
             {scanNote && !scanError && (
               <p className="rounded-xl border border-line bg-sunken px-3 py-2 text-[12.5px] text-dim">
                 {scanNote} — check the prices before saving.
@@ -373,6 +387,10 @@ export function ItemsEditor({
                         <X size={15} />
                       </button>
                     </div>
+
+                    {!!r.original && (
+                      <p className="mt-1 truncate text-[11.5px] text-faint">{r.original}</p>
+                    )}
 
                     <button
                       type="button"

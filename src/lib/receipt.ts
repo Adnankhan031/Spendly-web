@@ -1,5 +1,6 @@
 'use client';
 
+import { foldJa } from './jp';
 import { supabaseBrowser } from './supabase/client';
 
 export type ScannedItem = { name: string; amount_minor: number; qty?: number };
@@ -95,4 +96,114 @@ export async function readReceipt(dataUrl: string): Promise<ScannedReceipt> {
     total: parsed.total === null || parsed.total === undefined ? null : Math.round(parsed.total * 100),
     items: (parsed.items ?? []).map((i) => ({ ...i, amount_minor: Math.round(i.amount_minor * 100) })),
   };
+}
+
+/* ------------------------------------------------------------------ */
+/* translation                                                         */
+/* ------------------------------------------------------------------ */
+
+const CACHE_KEY = 'spendly.translations';
+
+/**
+ * Translations already known, kept in the browser.
+ *
+ * A translation never changes and the same products come back every shop, so
+ * caching turns a rationed request into a one-off cost. localStorage rather
+ * than a table because it needs no migration and is per-browser anyway; every
+ * read and write is guarded, since private windows and blocked site data both
+ * make the accessor throw rather than return nothing.
+ */
+function readCache(): Record<string, string> {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    return raw ? (JSON.parse(raw) as Record<string, string>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeCache(entries: Record<string, string>) {
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify(entries));
+  } catch {
+    // Full, private, or blocked. The translation still worked this once.
+  }
+}
+
+export type TranslationOutcome = {
+  translations: Map<string, string>;
+  problem: 'quota' | 'offline' | 'failed' | null;
+  untranslated: number;
+};
+
+/**
+ * English for a receipt's items: cache first, then one request for the rest.
+ *
+ * A whole receipt costs a single request rather than one per line, and never
+ * throws — a translation is a nicety, and losing it must not stop a receipt
+ * being saved.
+ */
+export async function translateNames(names: string[]): Promise<TranslationOutcome> {
+  const result = new Map<string, string>();
+  if (!names.length) return { translations: result, problem: null, untranslated: 0 };
+
+  const cache = readCache();
+  for (const n of names) {
+    const hit = cache[foldJa(n)];
+    if (hit) result.set(n, hit);
+  }
+
+  const missing = [...new Set(names.filter((n) => !result.has(n) && n.trim()))];
+  if (!missing.length) return { translations: result, problem: null, untranslated: 0 };
+
+  let problem: TranslationOutcome['problem'] = null;
+  try {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    if (!url || !key) throw new Error('unconfigured');
+
+    const { data } = await supabaseBrowser().auth.getSession();
+    const token = data.session?.access_token ?? key;
+
+    const res = await fetch(`${url}/functions/v1/read-receipt`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, apikey: key, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ names: missing }),
+    });
+
+    if (!res.ok) {
+      problem = res.status === 429 ? 'quota' : 'failed';
+    } else {
+      const body = await res.json();
+      const list: unknown = body?.translations;
+      if (Array.isArray(list)) {
+        const next = { ...cache };
+        missing.forEach((original, i) => {
+          const en = list[i];
+          // Unchanged means the model could not read it; not worth caching.
+          if (typeof en !== 'string' || !en.trim() || en.trim() === original) return;
+          result.set(original, en.trim());
+          next[foldJa(original)] = en.trim();
+        });
+        writeCache(next);
+      } else {
+        problem = 'failed';
+      }
+    }
+  } catch {
+    problem = 'offline';
+  }
+
+  const untranslated = names.filter((n) => !result.has(n)).length;
+  return { translations: result, problem: untranslated > 0 ? (problem ?? 'failed') : null, untranslated };
+}
+
+/** Plain wording for why some lines are still in Japanese. */
+export function translationNote(outcome: TranslationOutcome): string | null {
+  if (!outcome.problem || outcome.untranslated === 0) return null;
+  const n = outcome.untranslated;
+  const lines = `${n} ${n === 1 ? 'line is' : 'lines are'} still in Japanese`;
+  if (outcome.problem === 'quota') return `${lines} — the daily limit is used up.`;
+  if (outcome.problem === 'offline') return `${lines} — no connection.`;
+  return `${lines} — translation is unavailable right now.`;
 }

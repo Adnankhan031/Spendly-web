@@ -8,7 +8,7 @@ import { runQuery, type Answer } from '@/lib/analytics';
 import { DatePicker } from '@/components/pickers';
 import { TxnEditor } from '@/components/TxnEditor';
 import { ItemsEditor, type ReceiptDraft } from '@/components/ItemsEditor';
-import { compressImage, readReceipt } from '@/lib/receipt';
+import { compressImage, readReceipt, translateNames, translationNote } from '@/lib/receipt';
 import { CategoryIcon, IconTile } from '@/lib/icons';
 import { ArrowUp, Camera, LayoutGrid, Loader2, MessageSquareText, Plus, Trash2, X } from 'lucide-react';
 import { Chip, EmptyState, Spinner, cx } from '@/components/ui';
@@ -34,6 +34,7 @@ export default function AddPage() {
   const [draft, setDraft] = useState<ReceiptDraft | null>(null);
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
+  const [scanNote, setScanNote] = useState<string | null>(null);
   const shotRef = useRef<HTMLInputElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -110,11 +111,22 @@ export default function AddPage() {
         setScanError('No line items found. Try a straighter, brighter photo.');
         return;
       }
+      // Translate before the draft opens, so the list is readable at a glance.
+      // The Japanese original rides along, because classification keys off it.
+      const outcome = await translateNames(receipt.items.map((i) => i.name));
+      const note = translationNote(outcome);
+      if (note) setScanError(null);
+      setScanNote(note);
+
       setDraft({
         merchant: receipt.merchant,
         date: receipt.purchased_on || pinnedDate,
         total: receipt.total ?? receipt.items.reduce((a, i) => a + i.amount_minor, 0),
-        lines: receipt.items.map((i) => ({ name: i.name, amount_minor: i.amount_minor })),
+        lines: receipt.items.map((i) => ({
+          name: i.name,
+          en: outcome.translations.get(i.name) ?? null,
+          amount_minor: i.amount_minor,
+        })),
       });
     } catch (e) {
       setScanError(e instanceof Error ? e.message : 'Could not read that photo.');
@@ -562,7 +574,16 @@ export default function AddPage() {
           setShowDate(false);
         }}
       />
-      <ItemsEditor open={!!draft} txn={null} draft={draft} onClose={() => setDraft(null)} />
+      <ItemsEditor
+        open={!!draft}
+        txn={null}
+        draft={draft}
+        note={scanNote}
+        onClose={() => {
+          setDraft(null);
+          setScanNote(null);
+        }}
+      />
       <TxnEditor open={!!editing} txn={editing} onClose={() => setEditing(null)} />
       <TxnEditor open={creating} seed={{ local_date: pinnedDate }} onClose={() => setCreating(false)} />
     </div>
